@@ -1,4 +1,6 @@
 import zarr, glob, os, shutil, math, json
+import scipy as sp
+import skimage as sk
 import cv2 as cv
 import numpy as np
 
@@ -332,3 +334,9 @@ def add_smaller_image_to_larger(smaller_image,size):
 	# Add the smaller image to the center of the larger image
 	result_image[x_start:x_end, y_start:y_end] += smaller_image
 	return result_image
+
+
+def coregister(img1,img2):
+	shift, err, diff_phase = sk.registration.phase_cross_correlation(img1,img2)	
+	img2 = sp.ndimage.shift(img2,shift)
+	return img2, shift

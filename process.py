@@ -3,6 +3,8 @@ import numpy as np
 from tqdm import tqdm
 import zarr
 import cv2
+import ome_zarr
+from ome_zarr.writer import write_image
 
 import matplotlib.pyplot as plt
 
@@ -89,7 +91,7 @@ def find_useable_images_and_reports_index(filelist,mean,std):
 	
 	counter = 0
 	
-	threshhold = 3 * std
+	threshhold = 4 * std
 	
 	zeros = 0
 	
@@ -100,6 +102,8 @@ def find_useable_images_and_reports_index(filelist,mean,std):
 				m = np.mean(img[i])
 				if np.abs(mean-m) < threshhold and m > 0:
 					index[counter] = {'file':z,'index':i,'run':get_run_from_index_number(z)}
+				elif m > 0:
+					pass
                     #Put in code in to track when images are bad as opposed to m == 0
 #				elif m == 0:
 #					zeros += 1
@@ -219,9 +223,42 @@ def compile_images_into_single_zarr_file(data,fname):
 	root = zarr.group(store=store, overwrite=True)
 	muse = root.create_group('muse')
 	
+	
+#	root.attrs["omero"] = {
+#		"channels": [{
+#		"color": "00FFFF",
+#		"window": {"start": 0, "end": 20, "min": 0, "max": 255},
+#		"label": "random",
+#		"active": True,
+#			}]
+#		}
+#	
+#{
+#	"multiscales": [{
+#		"axes": [{
+#			"name": "z",
+#			"type": "space",
+#			"unit": "micrometer"},
+#			{"name": "y",
+#			"type": "space",
+#			"unit": "micrometer"},
+#			{"name": "x",
+#			"type": "space",
+#			"unit": "micrometer"}],
+#		"datasets": [{
+#			"coordinateTransformations":[{
+#			"scale":[
+#				3,
+#				0.9,
+#				0.9],
+#				"type": "scale"}],
+#			"path": "muse/stitched"}],
+#		"version": "0.4"}    ]
+#}	
+	
 	full_data_size = size
 	scaled_down_5x = int(full_data_size / 5)
-	scaled_down_10x = int(full_data_size / 5)
+	scaled_down_10x = int(full_data_size / 10)
 	
 	compiled = muse.zeros('data', shape=(count, full_data_size, full_data_size), chunks=(4, full_data_size, full_data_size), dtype="i2" )
 
@@ -255,10 +292,13 @@ def compile_images_into_single_zarr_file(data,fname):
 		adjusted_image = adjusted_image + data['mean']
 		adjusted_image = np.clip(adjusted_image,0,4095)
 		
-		_ , mask = ms.segment_out_the_nerve(img[index[i]['index']])
-		
-		image = adjusted_image * mask
-		image = ms.crop_black_border(image)
+		#change this
+#		_ , mask = ms.segment_out_the_nerve(img[index[i]['index']])
+#		image = adjusted_image * mask
+#		image = ms.crop_black_border(image)
+
+
+
 
 		if image.shape[0] > image.shape[1]:
 			image = image.T
@@ -290,8 +330,8 @@ def compile_images_into_single_zarr_file(data,fname):
 
 
 flist = ms.find_unprocessed_data_folders()
-for fname in flist:
-	master_compiler(fname)
-	
+print(flist)
+#for fname in flist:
+#	master_compiler(fname)
 
 
