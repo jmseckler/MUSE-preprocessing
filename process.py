@@ -1,10 +1,11 @@
 import methods as ms
 import numpy as np
 from tqdm import tqdm
-import zarr
-import cv2
-import ome_zarr
-from ome_zarr.writer import write_image
+import zarr, cv2, os
+
+from ome_zarr.io import parse_url
+from ome_zarr.writer import write_multiscale
+
 
 import matplotlib.pyplot as plt
 
@@ -15,6 +16,8 @@ sample = 50
 image_to_png = 100
 
 errorlog = []
+
+size = 5000
 
 
 def master_compiler(fname):
@@ -42,7 +45,7 @@ def master_compiler(fname):
 	data['attr'] = record_attributes(data['runs'])
 	print('Finished recording attributes...')
 	
-	zstack_image = compile_images_into_single_zarr_file(data,fname)
+	compile_images_into_single_zarr(data,fname)
 	
 	path = ms.output_path + '/' + fname
 	ms.save_arributes(path,data)
@@ -195,20 +198,24 @@ def get_indices_which_will_be_manually_segmented(index):
 	
 	return index_numbers
 	
-
-def compile_images_into_single_zarr_file(data,fname):
+def compile_images_into_single_zarr(data,fname):
 	global errorlog
 	index = data['index']
 	count = len(index)
-	
-	size = 5000
-	
-	while data['crop']['radius'] > size:
-		size += 2000
-	
 
+	while data['crop']['radius'] > size:
+		size += 1000
+	
+	path = ms.output_path + '/' + fname
+	png_path = path + '/png/'
+	fail_path = path + '/fail/'
+	
+	ms.replace_directory(path)
+	ms.replace_directory(png_path)
+	ms.replace_directory(fail_path)
+
+	#Create Folder Structure
 	chunk = (4, size,size)
-	# Create new zarr folder and data structure
 	
 	path = ms.output_path + '/' + fname
 	png_path = path + '/png/'
@@ -218,100 +225,42 @@ def compile_images_into_single_zarr_file(data,fname):
 	ms.replace_directory(png_path)
 	ms.replace_directory(fail_path)
 	
-	
-	store = zarr.DirectoryStore(path + '/' + fname + '.zarr', dimension_separator='/')
+	store = zarr.DirectoryStore(path + '/' + fname + '_temp.zarr', dimension_separator='/')
 	root = zarr.group(store=store, overwrite=True)
 	muse = root.create_group('muse')
-	
-	
-#	root.attrs["omero"] = {
-#		"channels": [{
-#		"color": "00FFFF",
-#		"window": {"start": 0, "end": 20, "min": 0, "max": 255},
-#		"label": "random",
-#		"active": True,
-#			}]
-#		}
-#	
-#{
-#	"multiscales": [{
-#		"axes": [{
-#			"name": "z",
-#			"type": "space",
-#			"unit": "micrometer"},
-#			{"name": "y",
-#			"type": "space",
-#			"unit": "micrometer"},
-#			{"name": "x",
-#			"type": "space",
-#			"unit": "micrometer"}],
-#		"datasets": [{
-#			"coordinateTransformations":[{
-#			"scale":[
-#				3,
-#				0.9,
-#				0.9],
-#				"type": "scale"}],
-#			"path": "muse/stitched"}],
-#		"version": "0.4"}    ]
-#}	
-	
+
 	full_data_size = size
 	scaled_down_5x = int(full_data_size / 5)
 	scaled_down_10x = int(full_data_size / 10)
 	
 	compiled = muse.zeros('data', shape=(count, full_data_size, full_data_size), chunks=(4, full_data_size, full_data_size), dtype="i2" )
-
 	downsampled5 = muse.zeros('downscaled_5', shape=(count, scaled_down_5x, scaled_down_5x), chunks=(4, scaled_down_5x, scaled_down_5x), dtype="i2" )
-
 	downsampled10 = muse.zeros('downscaled_10', shape=(count, scaled_down_10x, scaled_down_10x), chunks=(4, scaled_down_10x, scaled_down_10x), dtype="i2" )
 	
-	indices_to_segment = get_indices_which_will_be_manually_segmented(index)
-	
+	indices_to_segment = get_indices_which_will_be_manually_segmented(index)	
 	number_of_segments = len(indices_to_segment)
 	
 	if len(indices_to_segment) > 4:
 		segmented = muse.zeros('segment', shape=(number_of_segments, full_data_size, full_data_size), chunks=(4, full_data_size, full_data_size), dtype="i2" )
 	else:
 		segmented = muse.zeros('segment', shape=(number_of_segments, full_data_size, full_data_size), chunks=(number_of_segments, full_data_size, full_data_size), dtype="i2" )
-		
-	#Change the code for to make the segmented Images downsampled by 5 rather than full sized
 	
 	counter = 0
 	segment_counter = 0
-	
 	current_zarr_file = ''
 
-	
 	for i in tqdm(index):
 		if index[i]['file'] != current_zarr_file:
 			img, attrs = ms.get_image_from_zarr(index[i]['file'])
 			current_zarr_file = index[i]['file']
-
-		adjusted_image = img[index[i]['index']] - np.mean(img[index[i]['index']])
-		adjusted_image = adjusted_image + data['mean']
-		adjusted_image = np.clip(adjusted_image,0,4095)
-		
-		#change this
-#		_ , mask = ms.segment_out_the_nerve(img[index[i]['index']])
-#		image = adjusted_image * mask
-#		image = ms.crop_black_border(image)
-
-
-
-
-		if image.shape[0] > image.shape[1]:
-			image = image.T
-		
-		image = ms.add_smaller_image_to_larger(image,size)
-		image.astype('uint8')
+		if counter > 0:
+			image = ms.process_image(img[i],data['mean'],full_data_size,image)
+		else:
+			image = ms.process_image(img[i],data['mean'],full_data_size)
 		
 		compiled[counter] = image
-		img5 = cv2.resize(image,dsize = (scaled_down_5x,scaled_down_5x),interpolation=cv2.INTER_CUBIC)
-		img10 = cv2.resize(image,dsize = (scaled_down_10x,scaled_down_10x),interpolation=cv2.INTER_CUBIC)
-		
-		downsampled5[counter] = img5
-		downsampled10[counter] = img10
+		downsampled5[counter] = cv2.resize(image,dsize = (scaled_down_5x,scaled_down_5x),interpolation=cv2.INTER_CUBIC)
+		downsampled10[counter] = cv2.resize(image,dsize = (scaled_down_10x,scaled_down_10x),interpolation=cv2.INTER_CUBIC)
 		
 		if i in indices_to_segment:
 			segmented[segment_counter] = image
@@ -322,16 +271,25 @@ def compile_images_into_single_zarr_file(data,fname):
 			
 		counter += 1
 	
-	return compiled
-		
-		
-		
+	p = [compiled, downsampled5, downsampled10]
+	multiscales, ct = ms.build_coordinate_transforms_metadata_transformation_from_pixel()
+	
+	store_real = parse_url(path + '/' + fname + '.zarr', mode="w").store
+	root_real = zarr.group(store_real)
+	
+	write_multiscale(pyramid=p, group=root_real,  axes=["z", "y", "x"], coordinate_transformations = ct)
+	
+	#manually fix multiscales metadata to inlude units for axes
+	root.attrs["multiscales"] = multiscales
+	
+	os.remove(path + '/' + fname + '_temp.zarr')
+	
 	
 
 
 flist = ms.find_unprocessed_data_folders()
 print(flist)
-#for fname in flist:
-#	master_compiler(fname)
+for fname in flist:
+	master_compiler(fname)
 
 

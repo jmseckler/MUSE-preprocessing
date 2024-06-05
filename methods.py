@@ -4,6 +4,13 @@ import skimage as sk
 import cv2 as cv
 import numpy as np
 
+#Ian Specific Library
+import dask.array as da
+from ome_zarr.io import parse_url
+from ome_zarr.writer import write_multiscale
+import skimage
+
+
 #input_path = '/media/revadata/data/REVA/'
 #output_path = './output/'
 #input_path = '/media/revadata/data/REVA/SR005/'
@@ -316,6 +323,20 @@ def crop_black_border(image):
 	cropped_image = image[first_row:last_row, first_col:last_col]
 	return cropped_image
 
+def crop_down_to_size(image,size):
+	radius = int(size / 2)
+	
+	x0 = int(image.shape[0] / 2)
+	y0 = int(image.shape[1] / 2)
+	
+	x1 = x0 - radius
+	x2 = x0 + radius
+	y1 = y0 - radius
+	y2 = y0 + radius
+	
+	cropped_image = image[x1:x2,y1:y2]
+	return cropped_image
+
 def add_smaller_image_to_larger(smaller_image,size):
 	# Get the shape of the larger and smaller images
 	larger_shape = (size,size)
@@ -340,3 +361,79 @@ def coregister(img1,img2):
 	shift, err, diff_phase = sk.registration.phase_cross_correlation(img1,img2)	
 	img2 = sp.ndimage.shift(img2,shift)
 	return img2, shift
+
+def center_on_nerve(img,y,x):
+	x0 = int(x - (img.shape[0] / 2))
+	y0 = int(y - (img.shape[1] / 2))
+	
+	shift = (x0,y0)
+	img = sp.ndimage.shift(img,shift)
+	return img
+
+def process_image(img,mean,radius,align_image=None):
+	image = img - np.mean(img)
+	img = img + mean
+
+	size = np.amax(img.shape)
+	
+	img = add_smaller_image_to_larger(img,size)
+	
+	crop,mask = segment_out_the_nerve(img)
+	
+	x0 = int(crop[0])
+	y0 = int(crop[1])
+	
+	image = center_on_nerve(img,x0,y0)
+
+	if radius > size:
+		image = add_smaller_image_to_larger(image,radius)
+	else:
+		image = crop_down_to_size(image,radius)
+
+#	image = crop_down_to_size(image,radius)
+	
+	if align_image is None:
+		print("Original,",x0,y0)
+	else:
+		image, s = coregister(align_image,image)
+	return image
+
+
+
+#Put Ian Code Here
+
+def build_coordinate_transforms_metadata_transformation_from_pixel():
+	ct1 = [{"type": "scale", "scale": [12, 9, 9]}]
+	ct5 = [{"type": "scale", "scale": [12, 45, 45]}]
+	ct10 = [{"type": "scale", "scale": [12, 90, 90]}]
+	
+	ct = [ct1, ct5, ct10]
+	
+	#build multiscales metadata
+	axes = [
+		{"name": "z", "type": "space", "unit": "micrometer"},
+		{"name": "y", "type": "space", "unit": "micrometer"},
+		{"name": "x", "type": "space", "unit": "micrometer"}]
+	
+	datasets = [
+		{"coordinateTransformations": ct1, "path": "0"},
+		{"coordinateTransformations": ct5, "path": "1"},
+		{"coordinateTransformations": ct10, "path": "2"}]
+	
+	multiscales = [{
+		"name": "/",
+		"version": "0.4",
+		"axes": axes,
+		"datasets": datasets,
+	}]
+	
+	return multiscales, ct
+
+
+
+
+
+
+	
+	
+	
