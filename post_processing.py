@@ -13,8 +13,29 @@ import matplotlib.pyplot as plt
 #hd_name = 'Expansion'
 #zarr_number = 8
 
+def print_help():
+	print("This is a help for Seckler Post Processing Software.")
+	print("It expects to accept the input from MUSE REVA Preprocessing Software.")
+	print("Command: python post_processing.py <File Name> <Path to Data> <Options>")
+	print("")
+	print("-bk <image number>	Skips to image listed, analyzes that image, and that stops program. Default 0th image")
+	print("-bt			Preforms enhanced contrast enhancement using TopHat and BlackHat Imaging Modalities")
+	print("-ct <factor> <mean>	Contrasts the data according to new_px = factor * (old_px - mean) + 2055. Default: Factor = 3 and Mean = Image Mean")
+	print("-cp <height_min> <height_max> <width_min> <width_max>	Crops the image to the specified height and width. Default: Will not crop")
+	print("-d <scale>		Downscale data by whatever factor the user inputs. Default: 5")
+	print("-h:			Prints Help Message")
+	print("-sb			Adds scalebar to images outputed")
+	quit()
+
+
+if sys.argv[1] == "-h":
+	print_help()
 fname = sys.argv[1]
-hd_name = sys.argv[2]
+
+base_path = sys.argv[2]
+#base_path = '/media/james/' + sys.argv[2] + '/data/'
+
+
 zarr_number_i = int(sys.argv[3])
 zarr_number_f = int(sys.argv[4])
 
@@ -25,10 +46,12 @@ nerve_factor = 0
 #image_offset = 56
 mean = 2055
 
-crop_height = [1111,5313]
-crop_width = [3630,8283]
+crop_height = [0,-1]
+crop_width = [0,-1]
 
 sample = 50
+
+down_scale = 5
 
 
 downsample = False
@@ -36,6 +59,8 @@ scalebar = False
 contrast = False
 crop_image = False
 black_hat_top_hat = False
+stop_run = False
+start_run = 0
 
 #bar = cv.imread("./output/bar.png",cv.IMREAD_GRAYSCALE)
 #bar = bar / 15
@@ -45,20 +70,48 @@ black_hat_top_hat = False
 difference = []
 
 def inputparser():
-	global downsample, scalebar, contrast, crop_image, black_hat_top_hat
-	for tag in sys.argv:
+	global downsample, scalebar, contrast, crop_image, black_hat_top_hat, stop_run
+	global contrast_factor, nerve_factor, crop_height, crop_width, start_run, down_scale
+	n = len(sys.argv)
+	
+	for i in range(n):
+		tag = sys.argv[i]
 		if tag[0] == "-":
-			if tag == "-f":
+			if tag == "-h":
+				print_help()
+			if tag == "-d":
 				downsample = True
-			if tag == "-b":
+				try:
+					down_scale = int(sys.argv[i+1])
+				except:
+					pass
+			if tag == "-sb":
 				scalebar = True
 			if tag == "-ct":
 				contrast = True
+				try:
+					contrast_factor = int(sys.argv[i+1])
+					nerve_factor = int(sys.argv[i+2])
+				except:
+					pass
 			if tag == "-cp":
 				crop_image = True
+				try:
+					crop_height = [int(sys.argv[i+1]),int(sys.argv[i+2])]
+					crop_width = [int(sys.argv[i+3]),int(sys.argv[i+4])]
+				except:
+					pass
 			if tag == "-bt":
 				black_hat_top_hat = True
+			if tag == "-bk":
+				stop_run = True
+				try:
+					start_run = int(sys.argv[i+1])
+				except:
+					pass
 
+
+	
 
 def calculate_mean_intensity(filelist):
 	global errorlog
@@ -162,12 +215,15 @@ def overlay_images(image1, image2):
 	result_image[mask] = image1[mask]
 	return result_image
 
-def normalize_mean_and_enhance_contrast(img,mean,factor):
+def normalize_mean_and_enhance_contrast(img):
 #	print(np.mean(img),mean)
-	mean = mean - nerve_factor
-	image = img - np.mean(img)
-	image = image + nerve_factor
-	image = factor * image	
+	if nerve_factor > 0:
+		zero = nerve_factor
+	else:
+		zero = np.mean(img)
+	
+	image = img - zero
+	image = contrast_factor * image	
 	image = image + mean
 	
 	# New intensity = contrast_factor * (Old intensity - 127) + 127
@@ -188,16 +244,9 @@ def img_processer(file_name,img_align,image_offset = 0):
 	for i in tqdm(range(n)):
 		pre_index = 1 * i - 1
 		index = 1 * i + 0
-		if np.sum(img[index]) > 0:
+		if np.sum(img[index]) > 0 and i >= start_run:
 			image = img[index]
 
-#			d = image - img[pre_index]
-#			d = np.power(d,2)
-#			norm = d.shape[0] * d.shape[1]
-#			d = np.sum(d)
-#			d = np.sqrt(d) / norm
-#			difference.append(d)
-			
 			image, shift= ms.coregister(img_align,image)
 			
 			img_align = ms.copy(image)
@@ -206,8 +255,8 @@ def img_processer(file_name,img_align,image_offset = 0):
 				image = image[crop_height[0]:crop_height[1],crop_width[0]:crop_width[1]]
 			
 			if contrast:
-				image = normalize_mean_and_enhance_contrast(image,mean,contrast_factor)
-				image = ms.normalize_to_mean(image,mean)
+				image = normalize_mean_and_enhance_contrast(image)
+#				image = ms.normalize_to_mean(image,mean)
 			else:
 				image = ms.normalize_to_mean(image,mean)
 			
@@ -222,7 +271,7 @@ def img_processer(file_name,img_align,image_offset = 0):
 				image = ms.add_scalebar_to_image(image,4095)
 			
 			if downsample:
-				down_points = (int(image.shape[1] / 5), int(image.shape[0] / 5))
+				down_points = (int(image.shape[1] / down_scale), int(image.shape[0] / down_scale))
 				image = cv.resize(image, down_points, interpolation= cv.INTER_LINEAR)
 			
 			if counter < 100:
@@ -234,6 +283,8 @@ def img_processer(file_name,img_align,image_offset = 0):
 				c = str(counter)
 			cv.imwrite("./output/" + fname + f"/image_{c}.png",image/16)
 			counter += 1
+			if stop_run:
+				break
 	return img_align, counter	
 
 inputparser()
@@ -247,5 +298,7 @@ for i in range(n):
 	zarr_number = str(zarr_number_i + i)
 	path = '/media/james/' + hd_name + '/data/' + fname + '/MUSE_stitched_acq_'  + zarr_number + '.zarr'
 	img_to_align, c = img_processer(path,img_to_align, c)
+	if stop_run:
+		break
 
 
