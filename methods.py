@@ -1,47 +1,53 @@
-import glob, shutil, os, zarr
-import tifffile as tiffio
+import zarr, glob, os, shutil, math, json
+import scipy as sp
+import skimage as sk
+import cv2 as cv
+import numpy as np
 
+#Ian Specific Library
+import dask.array as da
 from ome_zarr.io import parse_url
 from ome_zarr.writer import write_multiscale
-import dask.array as da
-
-downsample = 1
-elipse_size = 30
-contrast_factor = 1
-nerve_factor = 0
-mean = 2047
-
-crop = [0,-1,0,-1]
+import skimage
 
 
-zarr_attr_path = "./.zattrs"
+#input_path = '/media/revadata/data/REVA/'
+#output_path = './output/'
+#input_path = '/media/revadata/data/REVA/SR005/'
+input_path =  '/media/james/T9/data/'
 
-def find_unprocessed_data_folders(path,outpath):
-	if not os.path.isdir(outpath):
-		os.makedirs(outpath)
-	
-	data_list = glob.glob(path + "*")
-	finished_paths = glob.glob(outpath + "*")
+#output_path = '/media/revadata/working/data/'
+output_path = '/media/james/T9/process/'
+
+
+threshhold = 128
+img_size = 2500
+img_step = 200
+sample = 50
+
+def find_unprocessed_data_folders(path=""):
+	if path == "":
+		inpath = input_path
+	else:
+		inpath = path
+	data_list = glob.glob(inpath + "*")
+	finished_list = glob.glob(output_path + "*")
 	flist = []
-	finished_list = []
-	
-	for pname in finished_paths:
-		fname = pname.split("/")[-1]
-		finished_list.append(fname)
-	
-	for pname in data_list:
-		fname = pname.split("/")[-1]
+	for fname in data_list:
 		if fname not in finished_list:
-			flist.append(pname)
+			flist.append(fname.split("/")[-1])
 	return flist
 
-def zarr_image_lister(path,etx="zarr"):
-	path = path + "/M*"
+def zarr_image_lister(path,inpath = ""):
+	if inpath == "":
+		path = input_path + path + "/M*"
+	else:
+		path = inpath + path + "/M*"
 	raw = glob.glob(path)
 	
 	flist = []
 	for fname in raw:
-		if fname.endswith((etx)):
+		if fname.endswith(("zarr")):
 			flist.append(fname)
 	flist = sorted(flist)
 	return flist
@@ -51,131 +57,435 @@ def get_image_from_zarr(path):
 	try:
 		return zfile["/muse/stitched/"], zfile.attrs
 	except KeyError:
-		print(f"Filename, {path} does not exist or is corrupted returning tiff stack instead...")
-		return get_image_from_tiff(path), None
-
-def path_number_parser(path):
-	run_num = path.split(".")[0]
-	run_num = run_num.split("_")[-1]
-	try:
-		run_num = int(run_num)
-	except ValueError:
-		run_num = 0
-	
-	return run_num
-
-def get_image_from_tiff(zarr_path):
-	run_num = path_number_parser(zarr_path)
-	path_parts = zarr_path.split("/")
-	path_parts.pop()
-	
-	path = ""
-	for p in path_parts:
-		path += p + "/"
-	path += "MUSE_acq_" + str(run_num)
-	
-	if not os.path.isdir(path):
-		print(f"Filename, {path} does not exist or is corrupted returning nothing...")
-		return None
-	
-	tiff_list = zarr_image_lister(path,"tif")
-	tiff_list = sorted(tiff_list,key=path_number_parser)
-	
-	n = find_tiff_image_length(tiff_list)
-	
-	try:
-		tmp = tiffio.imread(tiff_list[0])
-	except:
-		return None
-	
-	x = tmp.shape[-2]
-	y = tmp.shape[-1]
-	
-	if len(tiff_list) == 0:
-		print(f"Filename, {path} does not exist or is corrupted returning nothing...")
-		return None
-	
-	tiff_zarr = create_basic_zarr_file(path,"data")
-	data = tiff_zarr.zeros('data', shape=(n, x, y), chunks=(4, x, y), dtype="i2" )
-	
-	counter = 0
-	for tname in tiff_list:
-		length = get_tiff_stack_length(tname)
-		for i in range(length):
-			data[counter] = tiffio.imread(tname, key = int(i))
-			counter += 1
-	
-	return data
-	
-def convert_zarr_to_napari_readable(path,zname):
-	zfile = da.from_zarr(path + zname + '_tmp.zarr',component="/data")
-	
-	p = [zfile["/data/data/"], zfile["/data/down5/"], zfile["/data/down10/"]]
-	multiscales, ct = build_coordinate_transforms_metadata_transformation_from_pixel()
-	
-	store_real = parse_url(path + zname + '.zarr', mode="w").store
-	root_real = zarr.group(store_real)
-	
-	write_multiscale(pyramid=p, group=root_real,  axes=["z", "y", "x"], coordinate_transformations = ct)
-	
-	#manually fix multiscales metadata to inlude units for axes
-	root_real.attrs["multiscales"] = multiscales
-	
-	p_seg = [zfile["/data/segment/"],zfile["/data/segment5x"],zfile["/data/segment10x"]]
-	
-	store_seg = parse_url(path + zname + '_seg.zarr', mode="w").store
-	root_seg = zarr.group(store_seg)
-	write_multiscale(pyramid=p_seg, group=root_seg,  axes=["z", "y", "x"], coordinate_transformations = ct)
-	root_seg.attrs["multiscales"] = multiscales
-	
-	remove_directory(path + zname + '_tmp.zarr')
-	
-	
-
-def find_tiff_image_length(tiff_list):
-	count = 0
-	for tname in tiff_list:
-		count += get_tiff_stack_length(tname)
-	return count
-
-def get_tiff_stack_length(tname):
-	try:
-		with tiffio.TiffFile(tname) as tif:
-			return len(tif.pages)
-	except:
-		return 0
-
-
-def create_basic_zarr_file(path,fname):
-	zarr_path = path + '/' + fname + '.zarr'
-	if os.path.isdir(zarr_path):
-		shutil.rmtree(zarr_path)
-	store = zarr.DirectoryStore(zarr_path, dimension_separator='/')
-	root = zarr.group(store=store, overwrite=True)
-	data = root.create_group('data')
-	return data
-	
-
+		print("Filename, "+path+" is corrupted and did not produce a file from zarr file...")
+		return None, None
 
 def replace_directory(directory):
-	remove_directory(directory)
-	os.makedirs(directory)
-
-def remove_directory(directory):
 	if os.path.isdir(directory):
 		shutil.rmtree(directory)
+	os.makedirs(directory)
 
-def copy_directory(src,dst):
-	shutil.copytree(src,dst)
 
-def copy_zarr_attr(path,zname):
-	dst = path + '/' + zname + '.zarr/.zattrs'
-	shutil.copyfile(zarr_attr_path, dst)
+def find_difference_between_images(img1,img2):
+	diff = img1 - img2
+	diff = np.absolute(diff)
+	n = img1.shape[0] * img1.shape[1]
+	diff = np.sum(diff)
+	return diff / n
+
+def find_crop_positions(img):
+	img = (img/16).astype('uint8')
+	
+    #Put in step to adjust mean to threshhold, this may cause massive issues, check it stupid.
+    #Define threshold  in terms of mean and std of the individual image 
+
+	ret, thresh = cv.threshold(img, threshhold, 255, 0)
+	heirarchy, contours = cv.findContours(thresh, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+
+	size = -1
+	cluster = []
+	
+	for h in heirarchy:
+		if len(h) > size:
+			size = len(h)
+			cluster = h
+	
+	x = 0
+	y = 0
+	
+	x_par = [10000000,-1]
+	y_par = [10000000,-1]
+	
+	for pos in cluster:
+		x += pos[0][0]
+		y += pos[0][1]
+		if pos[0][0] < x_par[0]:
+			x_par[0] = pos[0][0]
+		if pos[0][0] > x_par[1]:
+			x_par[1] = pos[0][1]
+		
+		if pos[0][1] < y_par[0]:
+			y_par[0] = pos[0][0]
+		if pos[0][1] > y_par[1]:
+			y_par[1] = pos[0][1]
+			
+	if len(cluster) == 0:
+		return None
+
+	x = int(x / size)
+	y = int(y / size)
+
+	width = x_par[0] - x_par[1]
+	height = y_par[0] - y_par[1]
+	
+	radius = img_size
+	while width >= 2 * radius or height >= 2 * radius:
+		radius += img_step
+	
+	return [x, y, radius]
+
+def crop_img(image,x,y,r):
+	if 2 * r + 2 > np.amin(image.shape):
+		r = int(np.amin(image.shape) / 2 - 2)
+	
+	x_min = x - r
+	x_max = x + r
+	y_min = y - r
+	y_max = y + r
+	
+	if x_min < 0:
+		x_max -= x_min
+		x_min = 0
+	if y_min < 0:
+		y_max -= y_min
+		y_min = 0
+	
+	if x_max > image.shape[1]:
+		diff = x_max - image.shape[1] + 1
+		x_max = x_max - diff
+		x_min = x_min - diff
+	if y_max > image.shape[0]:
+		diff = y_max - image.shape[0] + 1
+		y_max = y_max - diff
+		y_min = y_min - diff
+	
+	cropped = image[y_min:y_max,x_min:x_max]
+	
+	if cropped.shape[0] < 2 * r or cropped.shape[1] < 2 * r:
+		embed = np.zeros((2*r,2*r))
+		offset_x = 2 * r - cropped.shape[0]
+		offset_y = 2 * r - cropped.shape[1]
+		
+		x_min_embedd = int(offset_x / 2)
+		x_max_embedd = x_min_embedd + cropped.shape[0]
+
+		y_min_embedd = int(offset_y / 2)
+		y_max_embedd = y_min_embedd + cropped.shape[0]
+		
+		embed[x_min_embedd:x_max_embedd,y_min_embedd:y_max_embedd] = image[y_min:y_max,x_min:x_max]
+		cropped = embed
+		
+	return cropped
+	
+def segment_out_the_nerve(img):
+	img = (img/16).astype('uint8')
+	mean = np.mean(img)
+	img = img - mean
+	img = img + threshhold
+	
+	std = np.std(img)
+	
+	img_threshhold = threshhold + 0.25 * std
+	
+	ret, thresh = cv.threshold(img, img_threshhold, 255, 0)
+	thresh = np.array(thresh, np.uint8)
+	
+	heirarchy, contours = cv.findContours(thresh, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+	
+	nerves_size = -1
+	nerve_cluster = -1
+	for h in heirarchy:
+		if len(h) > nerves_size:
+			nerves_size = len(h)
+			nerve_cluster = h
+
+	
+	dx = [100000,-1]
+	dy = [100000,-1]
+	
+	x = 0
+	y = 0
+	counter = 0
+	
+	nerve = np.zeros(img.shape)
+	
+	for pos in nerve_cluster:
+		nerve[pos[0][1]][pos[0][0]] = 255
+		if pos[0][0] < dx[0]:
+			dx[0] = pos[0][0]
+		elif pos[0][0] > dx[1]:
+			dx[1] = pos[0][0]
+		if pos[0][1] < dy[0]:
+			dy[0] = pos[0][1]
+		elif pos[0][1] > dx[1]:
+			dy[1] = pos[0][1]
+		x += pos[0][0]
+		y += pos[0][1]
+		counter += 1
+	
+	x = x / counter
+	y = y / counter
+	
+	for i in range(len(nerve_cluster)):
+		start_pixel = tuple(nerve_cluster[i - 1][0])
+		end_pixel = tuple(nerve_cluster[i][0])
+		cv.line(nerve, start_pixel, end_pixel, 255, 1)
+
+#	cv.imwrite(f"./output/raw_{z}.png",img)
+
+#	cv.imwrite(f"./output/nerve_{z}.png",nerve)
+	for i in range(nerve.shape[0]):
+		if nerve[i][0] > 0:
+			nerve[i][1] = 255
+			nerve[i][0] = 0
+		if nerve[i][-1] > 0:
+			nerve[i][-2] = 255
+			nerve[i][-1] = 0
+	
+	nerve = nerve.astype('uint8')
+	pixel = (0,0)
+	_, mask = cv.threshold(nerve, 1, 255, cv.THRESH_BINARY)
+	h, w = nerve.shape[:2]
+	mask_fill = np.zeros((h+2, w+2), np.uint8)
+	
+	cv.floodFill(mask, mask_fill, pixel, 255)
+	
+	mask = np.clip(cv.bitwise_not(mask),0,1)
+	
+	diameter = np.amax(np.array(np.abs(dx[1]-dx[0]),np.abs(dy[1]-dy[0])))
+	
+	return [x,y,diameter], mask
+
+
+
+	
+
+
+
+def save_image(name,path,img):
+	cv.imwrite(path + name + '.png',img)
+
+def save_zarr_file(path,z):
+	zarr.save(path + '/data' + '.zarr', z)
+
+def load_zarr_file(path):
+	return zarr.load(path + '/data' + '.zarr')
+
+def bleach_and_gamma_initial_variables(img,bitrate = 16):
+	pixel = 256 * bitrate - 1
+	scale = 16 / bitrate
+	
+	mean_first_slice = np.mean(img[0]) * scale
+	
+	try:
+		gamma = math.log(0.5*pixel)/math.log(mean_first_slice)
+	except ValueError:
+		print(pixel,mean_first_slice,np.sum(img))
+		quit()
+	
+	
+	
+	return mean_first_slice, gamma
+
+def save_arributes(name,data):
+	path = name + '/attibutes.json'
+	with open(path, 'w') as json_file:
+		json.dump(data, json_file)
+
+def load_attributes(name):
+	path = name + '/attibutes_' + '.json'
+	with open(path, 'r') as json_file:
+		data = json.load(json_file)
+	return data
+
+def save_sample_png(path,arr):
+	path = path + '/png/'
+	replace_directory(path)
+	n = arr.shape[0]
+	
+	if n < 100:
+		k = 1
+	else:
+		k = int(n/100)
+	
+	for i in range(n):
+		if i % k == 0 and np.sum(arr[i]) > 0:
+			print(np.amax(arr[i] / 16),np.amin(arr[i] / 16))
+			save_image(str(i),path,arr[i] / 16)
+	
+
+def save_data(name,arr,data):
+	path = output_path + name
+	replace_directory(path)
+	save_arributes(path,data)
+
+def load_data(name):
+	path = output_path + name
+	arr = load_zarr_file(path)
+	data = load_attributes(path)
+	return arr,data
+
+
+def crop_black_border(image):
+	# Find the first and last non-black pixels along rows
+	row_sum = np.sum(image, axis=1)
+	first_row = np.argmax(row_sum > 0)
+	last_row = len(row_sum) - np.argmax(row_sum[::-1] > 0)
+	
+	# Find the first and last non-black pixels along columns
+	col_sum = np.sum(image, axis=0)
+	first_col = np.argmax(col_sum > 0)
+	last_col = len(col_sum) - np.argmax(col_sum[::-1] > 0)
+	
+	# Crop the image to the non-black region
+	cropped_image = image[first_row:last_row, first_col:last_col]
+	return cropped_image
+
+def crop_down_to_size(image,size):
+	radius = int(size / 2)
+	
+	x0 = int(image.shape[0] / 2)
+	y0 = int(image.shape[1] / 2)
+	
+	x1 = x0 - radius
+	x2 = x0 + radius
+	y1 = y0 - radius
+	y2 = y0 + radius
+	
+	cropped_image = image[x1:x2,y1:y2]
+	return cropped_image
+
+def add_smaller_image_to_larger(smaller_image,size):
+	# Get the shape of the larger and smaller images
+	larger_shape = (size,size)
+	larger_image = np.zeros(larger_shape)
+	smaller_shape = smaller_image.shape
+	
+	# Calculate the position to place the smaller image in the center of the larger image
+	x_start = (larger_shape[0] - smaller_shape[0]) // 2
+	y_start = (larger_shape[1] - smaller_shape[1]) // 2
+	x_end = x_start + smaller_shape[0]
+	y_end = y_start + smaller_shape[1]
+	    
+	# Create a copy of the larger image to avoid modifying the original image
+	result_image = np.copy(larger_image)
+	
+	# Add the smaller image to the center of the larger image
+	result_image[x_start:x_end, y_start:y_end] += smaller_image
+	return result_image
+
+def add_scalebar_to_image(image,scale):
+	scalebar = cv.imread("./img/scalebar.png",cv.IMREAD_GRAYSCALE)
+	scalebar = scalebar / 255
+	scalebar = scalebar * scale
+	
+	
+	# Calculate the position to place the smaller image in the center of the larger image
+	x_start = image.shape[0] - scalebar.shape[0] - 100
+	y_start = image.shape[1] - scalebar.shape[1] - 100
+	x_end = image.shape[0] - 100
+	y_end = image.shape[1] - 100
+	
+	bar = np.zeros(image.shape)
+	bar[x_start:x_end, y_start:y_end] += scalebar	
+	mask = bar > 0
+	
+	# Create a copy of the larger image to avoid modifying the original image
+	result_image = np.copy(image)
+	
+	# Add the smaller image to the center of the larger image
+	result_image[mask] = bar[mask]
+	return result_image
+
+
+def coregister(img1,img2):
+	shift, err, diff_phase = sk.registration.phase_cross_correlation(img1,img2)	
+	img2 = sp.ndimage.shift(img2,shift)
+	return img2, shift
+
+def center_on_nerve(img,y,x):
+	x0 = int(x - (img.shape[0] / 2))
+	y0 = int(y - (img.shape[1] / 2))
+	
+	shift = (x0,y0)
+	img = sp.ndimage.shift(img,shift)
+	return img
+
+def process_image(img,mean,radius,align_image=None):
+	img = img - np.mean(img)
+	img = img + mean
+	
+	size = np.amax(img.shape)
+	
+	img = add_smaller_image_to_larger(img,size)
+	
+	crop,mask = segment_out_the_nerve(img)
+	
+#	mask = mask * 255
+	
+#	cv.imwrite(f"./output/mask.png",mask)
+	
+	x0 = int(crop[0])
+	y0 = int(crop[1])
+	
+	image = center_on_nerve(img,x0,y0)
+
+	if radius > size:
+		image = add_smaller_image_to_larger(image,radius)
+	else:
+		image = crop_down_to_size(image,radius)
+
+#	image = crop_down_to_size(image,radius)
+	
+	if align_image is None:
+		print("Original,",x0,y0)
+	else:
+		image, s = coregister(align_image,image)
+	return image
+
+
+def calculate_mean_intensity(filelist):
+	counter = 0
+	means = []
+	for z in filelist:
+		try:
+			means, counter = load_image_and_get_mean_as_array(z,counter,means)
+		except TypeError:#This is where we need to go in and make it revert to tiff stack
+			pass
+	
+	means = np.array(means)
+	m = np.average(means)
+	std = np.std(means)
+	return m, std
+
+def load_image_and_get_mean_as_array(z,counter,means):
+	img, attrs = get_image_from_zarr(z)
+	
+	n = len(img)
+	for i in range(n):
+		if counter % sample == 0:
+			mtemp = np.mean(img[i])
+			if mtemp > 0:
+				means.append(mtemp)
+		counter += 1
+	return means,counter
+
+def normalize_to_mean(img,mean):
+	image = img - np.mean(img)
+	image = image + mean
+	image = np.clip(image,0,4095)
+	return image
+
+def normalize_mean_and_enhance_contrast(img,mean,factor):
+#	print(np.mean(img),mean)
+	image = img - np.mean(img)
+	image = factor * image	
+	image = image + mean
+	
+	# New intensity = contrast_factor * (Old intensity - 127) + 127
+	
+	image = np.clip(image,0,4095)
+	return image
+	
+def copy(varr):
+	return varr
+
+#Put Ian Code Here
 
 def build_coordinate_transforms_metadata_transformation_from_pixel():
-	ct1 = [{"type": "scale", "scale": [9, .9, .9]}]
-	ct5 = [{"type": "scale", "scale": [9, 4.5, 4.5]}]
-	ct10 = [{"type": "scale", "scale": [9, 9, 9]}]
+	ct1 = [{"type": "scale", "scale": [12, 9, 9]}]
+	ct5 = [{"type": "scale", "scale": [12, 45, 45]}]
+	ct10 = [{"type": "scale", "scale": [12, 90, 90]}]
 	
 	ct = [ct1, ct5, ct10]
 	
@@ -191,7 +501,7 @@ def build_coordinate_transforms_metadata_transformation_from_pixel():
 		{"coordinateTransformations": ct10, "path": "2"}]
 	
 	multiscales = [{
-		"name": "/data",
+		"name": "/",
 		"version": "0.4",
 		"axes": axes,
 		"datasets": datasets,
@@ -199,3 +509,11 @@ def build_coordinate_transforms_metadata_transformation_from_pixel():
 	
 	return multiscales, ct
 
+
+
+
+
+
+	
+	
+	
