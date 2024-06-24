@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 def print_help():
 	print("This is a help for Seckler Post Processing Software.")
 	print("It expects to accept the input from MUSE REVA Preprocessing Software.")
-	print("Command: python post_processing.py <File Name> <Path to Data> <Options>")
+	print("Command: python post_processing.py <File Name> <Path to Data> <Fire Run> <Last Run> <Options>")
 	print("")
 	print("-bk <image number>	Skips to image listed, analyzes that image, and that stops program. Default 0th image")
 	print("-bt			Preforms enhanced contrast enhancement using TopHat and BlackHat Imaging Modalities")
@@ -296,7 +296,7 @@ c = 0
 ms.replace_directory("./output/" + fname + "/")
 for i in range(n):
 	zarr_number = str(zarr_number_i + i)
-	path = '/media/james/' + hd_name + '/data/' + fname + '/MUSE_stitched_acq_'  + zarr_number + '.zarr'
+	path = base_path + fname + '/MUSE_stitched_acq_'  + zarr_number + '.zarr'
 	img_to_align, c = img_processer(path,img_to_align, c)
 	if stop_run:
 		break
