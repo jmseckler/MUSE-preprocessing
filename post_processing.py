@@ -6,6 +6,8 @@ import sys
 from tqdm import tqdm
 import numpy as np
 
+import dask.array as da
+
 import matplotlib.pyplot as plt
 
 #fname = 'SR005-T1-6'
@@ -23,6 +25,7 @@ def print_help():
 	print("-ct <factor> <mean>	Contrasts the data according to new_px = factor * (old_px - mean) + 2055. Default: Factor = 3 and Mean = Image Mean")
 	print("-cp <height_min> <height_max> <width_min> <width_max>	Crops the image to the specified height and width. Default: Will not crop")
 	print("-d <scale>		Downscale data by whatever factor the user inputs. Default: 5")
+	print("-z			Write output to zarr file rather than pngs")
 	print("-h:			Prints Help Message")
 	print("-sb			Adds scalebar to images outputed")
 	quit()
@@ -32,8 +35,9 @@ if sys.argv[1] == "-h":
 	print_help()
 fname = sys.argv[1]
 
-base_path = sys.argv[2]
-#base_path = '/media/james/' + sys.argv[2] + '/data/'
+#base_path = sys.argv[2]
+base_path = '/media/james/' + sys.argv[2] + '/data/'
+outpath = "./output/"
 
 
 zarr_number_i = int(sys.argv[3])
@@ -45,6 +49,9 @@ contrast_factor = 3
 nerve_factor = 0
 #image_offset = 56
 mean = 2055
+x = 0
+y = 0
+z = 0
 
 crop_height = [0,-1]
 crop_width = [0,-1]
@@ -53,6 +60,7 @@ sample = 50
 
 down_scale = 5
 
+zimg = ()
 
 downsample = False
 scalebar = False
@@ -60,6 +68,7 @@ contrast = False
 crop_image = False
 black_hat_top_hat = False
 stop_run = False
+zarr_output = False
 start_run = 0
 
 #bar = cv.imread("./output/bar.png",cv.IMREAD_GRAYSCALE)
@@ -70,7 +79,7 @@ start_run = 0
 difference = []
 
 def inputparser():
-	global downsample, scalebar, contrast, crop_image, black_hat_top_hat, stop_run
+	global downsample, scalebar, contrast, crop_image, black_hat_top_hat, stop_run, zarr_output
 	global contrast_factor, nerve_factor, crop_height, crop_width, start_run, down_scale
 	n = len(sys.argv)
 	
@@ -109,6 +118,8 @@ def inputparser():
 					start_run = int(sys.argv[i+1])
 				except:
 					pass
+			if tag == "-z":
+				zarr_output = True
 
 
 	
@@ -157,17 +168,20 @@ def find_useable_images_and_reports_index(filelist,mean,std):
 	
 	return index
 
-def load_image_and_get_mean_as_array(z,counter,means):
-	img, attrs = ms.get_image_from_zarr(z)
+def load_image_and_get_mean_as_array(zpath,means):
+	global x, y
+	img, attrs = ms.get_image_from_zarr(zpath)
+	x = img.shape[1]
+	y = img.shape[2]
 	
-	n = len(img)
-	for i in range(n):
-		if counter % sample == 0:
-			mtemp = np.mean(img[i])
-			if mtemp > 0:
-				means.append(mtemp)
-		counter += 1
-	return means,counter
+	
+	temp_means = da.mean(img,axis=(1,2))
+	temp_means = temp_means.compute()
+	
+	for m in temp_means:
+		if m > 0:
+			means.append(m)
+	return means
 
 def get_run_from_index_number(z):
 	run = z.split('.')[-2]
@@ -232,7 +246,7 @@ def normalize_mean_and_enhance_contrast(img):
 	return image
 
 def img_processer(file_name,img_align,image_offset = 0):
-	global difference
+	global difference, zfull
 	img, attrs = ms.get_image_from_zarr(file_name)
 	
 	if img_align is None:
@@ -256,7 +270,6 @@ def img_processer(file_name,img_align,image_offset = 0):
 			
 			if contrast:
 				image = normalize_mean_and_enhance_contrast(image)
-#				image = ms.normalize_to_mean(image,mean)
 			else:
 				image = ms.normalize_to_mean(image,mean)
 			
@@ -281,19 +294,65 @@ def img_processer(file_name,img_align,image_offset = 0):
 					c = '0' + str(counter)
 			else:
 				c = str(counter)
-			cv.imwrite("./output/" + fname + f"/image_{c}.png",image/16)
+			
+			
+			if zarr_output:
+				zfull[counter] = image
+			else:
+				cv.imwrite("./output/" + fname + f"/image_{c}.png",image/16)
 			counter += 1
+			
 			if stop_run:
 				break
 	return img_align, counter	
 
+def create_zarr_file():
+	global zimg, x, y, z
+	zimg = ms.create_basic_zarr_file(outpath,fname)
+	
+	z = means.shape[0]
+	if crop_image:
+		x = crop_height[1] - crop_height[0]
+		y = crop_width[1] - crop_width[0]
+	
+	zshape, zchunk = ms.shape_definer(z,x,y,1)
+	full = zimg.zeros('0', shape=zshape, chunks=zchunk, dtype="i2" )
+	return zimg, full
+		
+def finish_making_zarr_file():
+	zshape5, zchunk5 = ms.shape_definer(z,x,y,5)
+	down5x = zimg.zeros('1', shape=zshape5, chunks=zchunk5, dtype="i2" )
+	zshape10, zchunk10 = ms.shape_definer(z,x,y,10)
+	down10x = zimg.zeros('2', shape=zshape10, chunks=zchunk10, dtype="i2" )
+	
+	for i in range(z):
+		down5x[i] = cv.resize(zfull[i],dsize = (zshape5[2],zshape5[1]),interpolation=cv.INTER_CUBIC)
+		down10x[i] = cv.resize(zfull[i],dsize = (zshape10[2],zshape10[1]),interpolation=cv.INTER_CUBIC) 
+
+	ms.copy_zarr_attr(outpath,fname)
+	return down5x, down10x
+
 inputparser()
+
+ms.replace_directory("./output/" + fname + "/")
+
 
 n = zarr_number_f - zarr_number_i + 1
 img_to_align = None
 c = 0
+means = []
+for i in range(n):
+	zarr_number = str(zarr_number_i + i)
+	path = base_path + fname + '/MUSE_stitched_acq_'  + zarr_number + '.zarr'
+	means = load_image_and_get_mean_as_array(path,means)
+	
+means = np.array(means)
+mean = np.mean(means)
+std = np.std(means)
 
-ms.replace_directory("./output/" + fname + "/")
+if zarr_output:
+	zimg, zfull = create_zarr_file()
+
 for i in range(n):
 	zarr_number = str(zarr_number_i + i)
 	path = base_path + fname + '/MUSE_stitched_acq_'  + zarr_number + '.zarr'
@@ -301,4 +360,10 @@ for i in range(n):
 	if stop_run:
 		break
 
+if zarr_output:
+	down5x, down10x = finish_making_zarr_file()
+
+	
+	
+	
 

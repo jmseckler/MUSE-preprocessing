@@ -10,6 +10,8 @@ from ome_zarr.io import parse_url
 from ome_zarr.writer import write_multiscale
 import skimage
 
+import dask.array as da
+
 
 #input_path = '/media/revadata/data/REVA/'
 #output_path = './output/'
@@ -18,6 +20,8 @@ input_path =  '/media/james/T9/data/'
 
 #output_path = '/media/revadata/working/data/'
 output_path = '/media/james/T9/process/'
+
+zarr_attr_path = "./.zattrs"
 
 
 threshhold = 128
@@ -52,13 +56,27 @@ def zarr_image_lister(path,inpath = ""):
 	flist = sorted(flist)
 	return flist
 
+
+
+
 def get_image_from_zarr(path):
+#	zfile = zarr.open(path)
+	try:
+		zimg = da.from_zarr(path, component="muse/stitched/")
+		return zimg, None
+	except KeyError:
+		print("Filename, "+path+" is corrupted and did not produce a file from zarr file...")
+		return None, None
+
+
+def get_image_from_zarr_old(path):
 	zfile = zarr.open(path)
 	try:
 		return zfile["/muse/stitched/"], zfile.attrs
 	except KeyError:
 		print("Filename, "+path+" is corrupted and did not produce a file from zarr file...")
 		return None, None
+
 
 def replace_directory(directory):
 	if os.path.isdir(directory):
@@ -483,9 +501,9 @@ def copy(varr):
 #Put Ian Code Here
 
 def build_coordinate_transforms_metadata_transformation_from_pixel():
-	ct1 = [{"type": "scale", "scale": [12, 9, 9]}]
-	ct5 = [{"type": "scale", "scale": [12, 45, 45]}]
-	ct10 = [{"type": "scale", "scale": [12, 90, 90]}]
+	ct1 = [{"type": "scale", "scale": [12, 0.9, 0.9]}]
+	ct5 = [{"type": "scale", "scale": [12, 4.5, 4.5]}]
+	ct10 = [{"type": "scale", "scale": [12, 9, 9]}]
 	
 	ct = [ct1, ct5, ct10]
 	
@@ -509,11 +527,29 @@ def build_coordinate_transforms_metadata_transformation_from_pixel():
 	
 	return multiscales, ct
 
-
-
-
-
-
+def create_basic_zarr_file(path,fname):
+	zarr_path = path + '/' + fname + '.zarr'
+	if os.path.isdir(zarr_path):
+		shutil.rmtree(zarr_path)
+	store = zarr.DirectoryStore(zarr_path, dimension_separator='/')
+	root = zarr.group(store=store, overwrite=True)
+	data = root.create_group('data')
+	return data
 	
-	
-	
+
+def remove_directory(directory):
+	if os.path.isdir(directory):
+		shutil.rmtree(directory)
+
+def copy_directory(src,dst):
+	shutil.copytree(src,dst)
+
+def copy_zarr_attr(path,zname):
+	dst = path + '/' + zname + '.zarr/.zattrs'
+	shutil.copyfile(zarr_attr_path, dst)
+
+def shape_definer(n,x,y,scale):
+	zshape = (n,int(x / scale),int(y / scale))
+	zchunk = (4,int(x / scale),int(y / scale))
+	return zshape, zchunk
+
