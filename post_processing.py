@@ -258,7 +258,12 @@ def img_processer(file_name,img_align,image_offset = 0):
 	for i in tqdm(range(n)):
 		pre_index = 1 * i - 1
 		index = 1 * i + 0
-		if np.sum(img[index]) > 0 and i >= start_run:
+		
+		#be suspicious of this code
+		m = np.mean(img[index])
+		dist_from_mean = np.abs(mean - m)
+		
+		if m > 0 and dist_from_mean < 4 * std and i >= start_run:
 			image = img[index]
 
 			image, shift= ms.coregister(img_align,image)
