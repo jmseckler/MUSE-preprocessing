@@ -41,5 +41,4 @@ dark = on_one_side_of_mean(img[x_min:x_max, y_min: y_max],False)
 
 noise = np.std(img[noise_x_min:noise_x_max, noise_y_min:noise_y_max])
 
-print(np.abs(light - dark) / noise)
-print("Total Intensity: ",np.mean(img))
+print("Contrast to Noise Ratio: ",np.abs(light - dark) / noise)
