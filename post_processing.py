@@ -22,9 +22,10 @@ def print_help():
 	print("")
 	print("-bk <image number>	Skips to image listed, analyzes that image, and that stops program. Default 0th image")
 	print("-bt			Preforms enhanced contrast enhancement using TopHat and BlackHat Imaging Modalities")
-	print("-ct <factor> <mean>	Contrasts the data according to new_px = factor * (old_px - mean) + 2055. Default: Factor = 3 and Mean = Image Mean")
+	print("-ct <factor>		Contrasts the data according to new_px = factor * (old_px - mean) + 2055. Default: Factor = 3 and Mean = Image Mean")
 	print("-cp <height_min> <height_max> <width_min> <width_max>	Crops the image to the specified height and width. Default: Will not crop")
 	print("-d <scale>		Downscale data by whatever factor the user inputs. Default: 5")
+	print("-m <mean>		Override mean to save time")
 	print("-z			Write output to zarr file rather than pngs")
 	print("-h:			Prints Help Message")
 	print("-sb			Adds scalebar to images outputed")
@@ -69,6 +70,7 @@ crop_image = False
 black_hat_top_hat = False
 stop_run = False
 zarr_output = False
+override_mean = False
 start_run = 0
 
 #bar = cv.imread("./output/bar.png",cv.IMREAD_GRAYSCALE)
@@ -79,8 +81,8 @@ start_run = 0
 difference = []
 
 def inputparser():
-	global downsample, scalebar, contrast, crop_image, black_hat_top_hat, stop_run, zarr_output
-	global contrast_factor, nerve_factor, crop_height, crop_width, start_run, down_scale
+	global downsample, scalebar, contrast, crop_image, black_hat_top_hat, stop_run, zarr_output, override_mean
+	global contrast_factor, nerve_factor, crop_height, crop_width, start_run, down_scale, mean
 	n = len(sys.argv)
 	
 	for i in range(n):
@@ -100,7 +102,6 @@ def inputparser():
 				contrast = True
 				try:
 					contrast_factor = int(sys.argv[i+1])
-					nerve_factor = int(sys.argv[i+2])
 				except:
 					pass
 			if tag == "-cp":
@@ -120,6 +121,12 @@ def inputparser():
 					pass
 			if tag == "-z":
 				zarr_output = True
+			if tag == "-m":
+				override_mean = True
+				try:
+					mean = int(sys.argv[i+1])
+				except:
+					pass
 
 
 	
@@ -345,15 +352,20 @@ ms.replace_directory("./output/" + fname + "/")
 n = zarr_number_f - zarr_number_i + 1
 img_to_align = None
 c = 0
-means = []
-for i in range(n):
-	zarr_number = str(zarr_number_i + i)
-	path = base_path + fname + '/MUSE_stitched_acq_'  + zarr_number + '.zarr'
-	means = load_image_and_get_mean_as_array(path,means)
-	
-means = np.array(means)
-mean = np.mean(means)
-std = np.std(means)
+
+if not override_mean:
+	means = []
+	for i in range(n):
+		zarr_number = str(zarr_number_i + i)
+		path = base_path + fname + '/MUSE_stitched_acq_'  + zarr_number + '.zarr'
+		means = load_image_and_get_mean_as_array(path,means)
+		
+	means = np.array(means)
+
+	mean = np.mean(means)
+	std = np.std(means)
+else:
+	std = mean
 
 if zarr_output:
 	zimg, zfull = create_zarr_file()
