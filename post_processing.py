@@ -37,7 +37,8 @@ if sys.argv[1] == "-h":
 fname = sys.argv[1]
 
 #base_path = sys.argv[2]
-base_path = '/media/james/' + sys.argv[2] + '/data/'
+#base_path = '/media/james/' + sys.argv[2] + '/data/'
+base_path = "" #Replace with path to your directory
 outpath = "./output/"
 
 
@@ -270,7 +271,7 @@ def img_processer(file_name,img_align,image_offset = 0):
 		m = np.mean(img[index])
 		dist_from_mean = np.abs(mean - m)
 		
-		if m > 0 and dist_from_mean < 4 * std and i >= start_run:
+		if m > 0 and (dist_from_mean < 4 * std or stop_run) and i >= start_run:
 			image = img[index]
 
 			image, shift= ms.coregister(img_align,image)
