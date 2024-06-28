@@ -10,11 +10,6 @@ import dask.array as da
 
 import matplotlib.pyplot as plt
 
-#fname = 'SR005-T1-6'
-#fname = 'SR005-CL2-4'
-#hd_name = 'Expansion'
-#zarr_number = 8
-
 def print_help():
 	print("This is a help for Seckler Post Processing Software.")
 	print("It expects to accept the input from MUSE REVA Preprocessing Software.")
@@ -37,8 +32,8 @@ if sys.argv[1] == "-h":
 fname = sys.argv[1]
 
 #base_path = sys.argv[2]
-base_path = '/media/james/' + sys.argv[2] + '/data/'
-#base_path = "" #Replace with path to your directory
+#base_path = '/media/james/' + sys.argv[2] + '/data/'
+base_path = "" #Replace with path to your directory
 outpath = "./output/"
 
 
