@@ -37,8 +37,8 @@ if sys.argv[1] == "-h":
 fname = sys.argv[1]
 
 #base_path = sys.argv[2]
-#base_path = '/media/james/' + sys.argv[2] + '/data/'
-base_path = "" #Replace with path to your directory
+base_path = '/media/james/' + sys.argv[2] + '/data/'
+#base_path = "" #Replace with path to your directory
 outpath = "./output/"
 
 
@@ -48,7 +48,6 @@ zarr_number_f = int(sys.argv[4])
 elipse_size = 30
 
 contrast_factor = 3
-nerve_factor = 0
 #image_offset = 56
 mean = 2055
 x = 0
@@ -239,10 +238,7 @@ def overlay_images(image1, image2):
 
 def normalize_mean_and_enhance_contrast(img):
 #	print(np.mean(img),mean)
-	if nerve_factor > 0:
-		zero = nerve_factor
-	else:
-		zero = np.mean(img)
+	zero = np.mean(img)
 	
 	image = img - zero
 	image = contrast_factor * image	
@@ -317,6 +313,9 @@ def img_processer(file_name,img_align,image_offset = 0):
 			
 			if stop_run:
 				break
+		elif m == 0:
+			print(f"Run ends at {i-1} no further images are usable")
+			break
 	return img_align, counter	
 
 def create_zarr_file():
@@ -345,10 +344,45 @@ def finish_making_zarr_file():
 	ms.copy_zarr_attr(outpath,fname)
 	return down5x, down10x
 
+def attributes_saver():
+	file_path = outpath + fname + "/configuration.txt"
+	
+	dictionary = {
+	"Downsample":str(downsample),
+	"Scalebar":str(scalebar),
+	"Contrasting":str(contrast),
+	"Cropping":str(crop_image),
+	"Image Break":str(stop_run),
+	"Top Hat/Black Hat Contrasting":str(black_hat_top_hat),
+	"Zarr Output":str(zarr_output),
+	"Mean Override":str(override_mean),
+	"Starting Run":str(zarr_number_i),
+	"Ending Run":str(zarr_number_f)
+	}
+	if stop_run:
+		dictionary['Break Image Index'] = str(start_run)
+	if contrast:
+		dictionary['Contrast Factor'] = str(contrast_factor)
+	if crop_image:
+		dictionary['Crop Height Min'] = str(crop_height[0])
+		dictionary['Crop Height Max'] = str(crop_height[1])
+		dictionary['Crop Width Min'] = str(crop_width[0])
+		dictionary['Crop Width Max'] = str(crop_width[1])
+	if downsample:
+		dictionary['Downsampling Factor'] = str(down_scale)
+	if override_mean:
+		dictionary['Mean Lock'] = str(mean)
+
+	
+	with open(file_path, 'w') as file:
+		for key, value in dictionary.items():
+			file.write(f"{key}: {value}\n")
+
+
 inputparser()
 
-ms.replace_directory("./output/" + fname + "/")
-
+ms.replace_directory(outpath + fname + "/")
+attributes_saver()
 
 n = zarr_number_f - zarr_number_i + 1
 img_to_align = None
