@@ -25,7 +25,7 @@ def print_help():
 	print("-ct <factor>		Contrasts the data according to new_px = factor * (old_px - mean) + 2055. Default: Factor = 3 and Mean = Image Mean")
 	print("-cp <height_min> <height_max> <width_min> <width_max>	Crops the image to the specified height and width. Default: Will not crop")
 	print("-d <scale>		Downscale data by whatever factor the user inputs. Default: 5")
-	print("-m <mean>		Override mean to save time")
+	print("-m <mean> <std>		Override mean to save time")
 	print("-n <run start> <run end> <background min heigh> <background max height>	Normalizes the background of a run when the light was misaligned")
 	print("-z			Write output to zarr file rather than pngs")
 	print("-h:			Prints Help Message")
@@ -74,6 +74,7 @@ stop_run = False
 zarr_output = False
 override_mean = False
 background_norm = False
+
 start_run = 0
 
 #bar = cv.imread("./output/bar.png",cv.IMREAD_GRAYSCALE)
@@ -85,7 +86,7 @@ difference = []
 
 def inputparser():
 	global downsample, scalebar, contrast, crop_image, black_hat_top_hat, stop_run, zarr_output, override_mean, background_norm
-	global contrast_factor, nerve_factor, crop_height, crop_width, start_run, down_scale, mean, background_normalize_pos, background_correction, base_path
+	global contrast_factor, nerve_factor, crop_height, crop_width, start_run, down_scale, mean, background_normalize_pos, background_correction, base_path, std
 	n = len(sys.argv)
 	
 	for i in range(n):
@@ -127,7 +128,8 @@ def inputparser():
 			if tag == "-m":
 				override_mean = True
 				try:
-					mean = int(sys.argv[i+1])
+					mean = float(sys.argv[i+1])
+					std = float(sys.argv[i+2])
 				except:
 					pass
 			if tag == "-n":
@@ -418,6 +420,8 @@ n = zarr_number_f - zarr_number_i + 1
 img_to_align = None
 c = 0
 
+#Put in code to check to make sure that zarr_number_i and zarr_number_f are both less than the total acquistion number
+
 if not override_mean:
 	means = []
 	for i in range(n):
@@ -429,7 +433,8 @@ if not override_mean:
 
 	mean = np.mean(means)
 	std = np.std(means)
-else:
+	print(f'Calculated Mean Intensity of all data {mean}, with a standard deviation of {std}')
+elif std == 0:
 	std = mean
 
 if zarr_output:
