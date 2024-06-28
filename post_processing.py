@@ -10,6 +10,11 @@ import dask.array as da
 
 import matplotlib.pyplot as plt
 
+#fname = 'SR005-T1-6'
+#fname = 'SR005-CL2-4'
+#hd_name = 'Expansion'
+#zarr_number = 8
+
 def print_help():
 	print("This is a help for Seckler Post Processing Software.")
 	print("It expects to accept the input from MUSE REVA Preprocessing Software.")
@@ -21,6 +26,7 @@ def print_help():
 	print("-cp <height_min> <height_max> <width_min> <width_max>	Crops the image to the specified height and width. Default: Will not crop")
 	print("-d <scale>		Downscale data by whatever factor the user inputs. Default: 5")
 	print("-m <mean>		Override mean to save time")
+	print("-n <run start> <run end> <background min heigh> <background max height>	Normalizes the background of a run when the light was misaligned")
 	print("-z			Write output to zarr file rather than pngs")
 	print("-h:			Prints Help Message")
 	print("-sb			Adds scalebar to images outputed")
@@ -31,9 +37,8 @@ if sys.argv[1] == "-h":
 	print_help()
 fname = sys.argv[1]
 
-#base_path = sys.argv[2]
-#base_path = '/media/james/' + sys.argv[2] + '/data/'
-base_path = "" #Replace with path to your directory
+base_path = sys.argv[2]
+#base_path = "" #Replace with path to your directory
 outpath = "./output/"
 
 
@@ -51,6 +56,8 @@ z = 0
 
 crop_height = [0,-1]
 crop_width = [0,-1]
+background_normalize_pos = [0,-1]
+background_correction = []
 
 sample = 50
 
@@ -66,6 +73,7 @@ black_hat_top_hat = False
 stop_run = False
 zarr_output = False
 override_mean = False
+background_norm = False
 start_run = 0
 
 #bar = cv.imread("./output/bar.png",cv.IMREAD_GRAYSCALE)
@@ -76,8 +84,8 @@ start_run = 0
 difference = []
 
 def inputparser():
-	global downsample, scalebar, contrast, crop_image, black_hat_top_hat, stop_run, zarr_output, override_mean
-	global contrast_factor, nerve_factor, crop_height, crop_width, start_run, down_scale, mean
+	global downsample, scalebar, contrast, crop_image, black_hat_top_hat, stop_run, zarr_output, override_mean, background_norm
+	global contrast_factor, nerve_factor, crop_height, crop_width, start_run, down_scale, mean, background_normalize_pos, background_correction, base_path
 	n = len(sys.argv)
 	
 	for i in range(n):
@@ -96,7 +104,7 @@ def inputparser():
 			if tag == "-ct":
 				contrast = True
 				try:
-					contrast_factor = int(sys.argv[i+1])
+					contrast_factor = float(sys.argv[i+1])
 				except:
 					pass
 			if tag == "-cp":
@@ -122,6 +130,21 @@ def inputparser():
 					mean = int(sys.argv[i+1])
 				except:
 					pass
+			if tag == "-n":
+				background_norm = True
+				try:
+					background_normalize_pos[0] = int(sys.argv[i+3])
+					background_normalize_pos[1] = int(sys.argv[i+4])
+					
+					n = 1 + int(sys.argv[i+2]) - int(sys.argv[i+1])
+					
+					for j in range(n):
+						background_correction.append(j+int(sys.argv[i+2]))
+				except:
+					print("Acquisition failed using defaults")
+			if tag == "-jms":
+				#Uses James's path convention, because I'm sick of commenting it out every time
+				base_path = '/media/james/' + sys.argv[2] + '/data/'
 
 
 	
@@ -244,12 +267,13 @@ def normalize_mean_and_enhance_contrast(img):
 	image = np.clip(image,0,4095)
 	return image
 
-def img_processer(file_name,img_align,image_offset = 0):
+def img_processer(file_name,img_align,image_offset = 0,run_number = 0):
 	global difference, zfull
+	run_number = int(run_number)
 	img, attrs = ms.get_image_from_zarr(file_name)
 	
 	if img_align is None:
-		img_align = img[0]
+		img_align = np.array(img[0])
 	n = int(img.shape[0] / 1)
 	image = None
 	
@@ -263,8 +287,12 @@ def img_processer(file_name,img_align,image_offset = 0):
 		dist_from_mean = np.abs(mean - m)
 		
 		if m > 0 and (dist_from_mean < 4 * std or stop_run) and i >= start_run:
-			image = img[index]
-
+			image = np.array(img[index])
+			
+			if background_norm and run_number in background_correction:
+				image = ms.normalize_image_by_column(image,background_normalize_pos)
+				
+			
 			image, shift= ms.coregister(img_align,image)
 			
 			img_align = ms.copy(image)
@@ -367,12 +395,19 @@ def attributes_saver():
 		dictionary['Downsampling Factor'] = str(down_scale)
 	if override_mean:
 		dictionary['Mean Lock'] = str(mean)
+	if background_norm:
+		dictionary['Background normalization run'] = ''
+		for r in background_correction:
+			dictionary['Background normalization run'] += str(str(r) + ", ")
+			dictionary['Background normalization position'] = str(background_normalize_pos[0]) + ", " + str(background_normalize_pos[1])
 
 	
 	with open(file_path, 'w') as file:
 		for key, value in dictionary.items():
 			file.write(f"{key}: {value}\n")
 
+
+	
 
 inputparser()
 
@@ -403,7 +438,7 @@ if zarr_output:
 for i in range(n):
 	zarr_number = str(zarr_number_i + i)
 	path = base_path + fname + '/MUSE_stitched_acq_'  + zarr_number + '.zarr'
-	img_to_align, c = img_processer(path,img_to_align, c)
+	img_to_align, c = img_processer(path,img_to_align, c, zarr_number)
 	if stop_run:
 		break
 

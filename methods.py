@@ -64,9 +64,9 @@ def get_image_from_zarr(path):
 	try:
 		zimg = da.from_zarr(path, component="muse/stitched/")
 		return zimg, None
-	except KeyError:
+	except:
 		print("Filename, "+path+" is corrupted and did not produce a file from zarr file...")
-		return None, None
+		quit()
 
 
 def get_image_from_zarr_old(path):
@@ -553,3 +553,14 @@ def shape_definer(n,x,y,scale):
 	zchunk = (4,int(x / scale),int(y / scale))
 	return zshape, zchunk
 
+
+def normalize_image_by_column(img,pos):
+	subset = np.array(img[pos[0]:pos[1]])
+	column_mean_values = np.mean(subset, axis=0)
+	column_means = np.tile(column_mean_values, (img.shape[0], 1))
+	total_mean = np.mean(subset)
+	img = img - column_means
+	img = img + total_mean
+	img = np.clip(img,0,4095)
+	return img
+	
