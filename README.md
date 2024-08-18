@@ -5,7 +5,7 @@ This is a help for Seckler Post Processing Software.
 It expects to accept the input from MUSE REVA Preprocessing Software.
 Command: python post_processing.py <File Name> <Path to Data> <Run Array> <Options>
 
---bk <break point> 		Skips to image listed, analyzes that image, and that stops program. Default 0th image 
+--bk <break point> 		Skips to image listed, analyzes that image, and that stops program. Default 0th image \n
 --bt 		Preforms enhanced contrast enhancement using TopHat and BlackHat Imaging Modalities 
 --cp <height min> <height max> <width min> <width max> 		Crops the image to the specified height and width. Default: Will not crop 
 --ct <contrast factor> 		Contrasts the data according to new_px = factor * (old_px - mean) + 2055. Default: Factor = 1 
