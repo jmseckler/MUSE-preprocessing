@@ -1,456 +1,478 @@
+#Postprocessing programe Version 2.0, August 18th, 2024
+
 import methods as ms
-import cv2 as cv
-import tifffile as tiffio
-import sys
-
-from tqdm import tqdm
+import sys, getpass, ast, os, json, multiprocessing
 import numpy as np
+import cv2 as cv
+from tqdm import tqdm
 
-import dask.array as da
-
-import matplotlib.pyplot as plt
-
-#fname = 'SR005-T1-6'
-#fname = 'SR005-CL2-4'
-#hd_name = 'Expansion'
-#zarr_number = 8
-
-def print_help():
-	print("This is a help for Seckler Post Processing Software.")
-	print("It expects to accept the input from MUSE REVA Preprocessing Software.")
-	print("Command: python post_processing.py <File Name> <Path to Data> <Fire Run> <Last Run> <Options>")
-	print("")
-	print("-bk <image number>	Skips to image listed, analyzes that image, and that stops program. Default 0th image")
-	print("-bt			Preforms enhanced contrast enhancement using TopHat and BlackHat Imaging Modalities")
-	print("-ct <factor>		Contrasts the data according to new_px = factor * (old_px - mean) + 2055. Default: Factor = 3 and Mean = Image Mean")
-	print("-cp <height_min> <height_max> <width_min> <width_max>	Crops the image to the specified height and width. Default: Will not crop")
-	print("-d <scale>		Downscale data by whatever factor the user inputs. Default: 5")
-	print("-m <mean> <std>		Override mean to save time")
-	print("-n <run start> <run end> <background min heigh> <background max height>	Normalizes the background of a run when the light was misaligned")
-	print("-z			Write output to zarr file rather than pngs")
-	print("-h:			Prints Help Message")
-	print("-sb			Adds scalebar to images outputed")
-	quit()
+cmdInputs = {
+	'-bk':{"name":"Single Image Run","types":['int'],"names":["break point"],"variable":[0],"active":False,"tooltips":"Skips to image listed, analyzes that image, and that stops program. Default 0th image"},
+	'-bt':{"name":"Enhanced Contrasting","types":[],"names":[],"variable":[],"active":False,"tooltips":"Preforms enhanced contrast enhancement using TopHat and BlackHat Imaging Modalities"},
+	'-cp':{"name":"Crop Image","types":['int','int','int','int'],"names":['height min','height max','width min','width max'],"variable":[0,-1,0,-1],"active":False,"tooltips":"Crops the image to the specified height and width. Default: Will not crop"},
+	'-ct':{"name":"Normal Contrasting","types":['float'],"names":['contrast factor'],"variable":[1.0],"active":False,"tooltips":"Contrasts the data according to new_px = factor * (old_px - mean) + 2055. Default: Factor = 1"},
+	'-d':{"name":"Downsample Image","types":['int'],"names":['scaling factor'],"variable":[4],"active":False,"tooltips":"Downscale data by whatever factor the user inputs. Default: 4"},
+	'-h':{"name":"Help","types":[],"names":[],"variable":[],"active":False,"tooltips":"Generates and prints help message"},
+	'-m':{"name":"Mean Locking","types":['float','float'],"names":['mean', 'std'],"variable":[2055.0,10000],"active":False,"tooltips":"Override mean to save time, you must input the mean and the standard deviation as integers of floating point values"},
+	'-n':{"name":"Normalize Background","types":['int','int','int','int'],"names":['run start', 'run end','background min height','background max height'],"variable":[-1,-1,0,-1],"active":False,"tooltips":"Normalizes the background of a run when the light was misaligned"},
+	'-o':{"name":"Override Output","types":['str'],"names":['path'],"variable":["./output/"],"active":False,"tooltips":"Changes output directory"},	
+	'-p':{"name":"Processors Used","types":['int'],"names":['processors'],"variable":[4],"active":False,"tooltips":"Sets the maximum number of processing cores that program will used. Default is 4"},
+	'-sb':{"name":"Add Scalebar","types":[],"names":[],"variable":[],"active":False,"tooltips":"Adds scalebar to images outputed"},
+	'-sk':{"name":"Skip Alignment","types":[],"names":[],"variable":[],"active":False,"tooltips":"Skips aligning between runs"},
+	'-v':{"name":"Output video PNGs","types":[],"names":[],"variable":[],"active":False,"tooltips":"Makes a set of downscaled pngs to be compiled into a flythrough in /flythrough/"},
+	'-z':{"name":"Output Zarr","types":[],"names":[],"variable":[],"active":False,"tooltips":"Write output to zarr file rather than pngs"}
+	}
 
 
-if sys.argv[1] == "-h":
-	print_help()
-fname = sys.argv[1]
+def setup():
+	print("Setting up data structures and validating data...")
+	inputParser()
+	variableEncode()
+	attributes_saver()
+	validatate_zarr_path_and_determine_if_runs_are_valid()
+	alignBetweenRuns()
+	validate_data_file_and_ensure_data_is_correct()
+	data_saver_to_json()
 
-base_path = sys.argv[2]
-#base_path = "" #Replace with path to your directory
-outpath = "./output/"
-
-
-zarr_number_i = int(sys.argv[3])
-zarr_number_f = int(sys.argv[4])
-
-elipse_size = 30
-
-contrast_factor = 3
-#image_offset = 56
-mean = 2055
-x = 0
-y = 0
-z = 0
-
-crop_height = [0,-1]
-crop_width = [0,-1]
-background_normalize_pos = [0,-1]
-background_correction = []
-
-sample = 50
-
-down_scale = 5
-
-zimg = ()
-
-downsample = False
-scalebar = False
-contrast = False
-crop_image = False
-black_hat_top_hat = False
-stop_run = False
-zarr_output = False
-override_mean = False
-background_norm = False
-
-start_run = 0
-
-#bar = cv.imread("./output/bar.png",cv.IMREAD_GRAYSCALE)
-#bar = bar / 15
-#bar = bar * 4095
+	
 
 
-difference = []
-
-def inputparser():
-	global downsample, scalebar, contrast, crop_image, black_hat_top_hat, stop_run, zarr_output, override_mean, background_norm
-	global contrast_factor, nerve_factor, crop_height, crop_width, start_run, down_scale, mean, background_normalize_pos, background_correction, base_path, std
+def inputParser():
+	global cmdInputs, fname, base_path, runArray, runLength
 	n = len(sys.argv)
+	
+	if n < 3 and '-h' not in sys.argv:
+		print("No filename and/or path given...")
+		quit()
+	
+	if '-h' in sys.argv:
+		printHelp()
+	
+	fname = sys.argv[1]
+	base_path = sys.argv[2]
+	try:
+		runArray = ast.literal_eval(sys.argv[3])
+	except:
+		runArray = [1]
+		print(f"Run input fail, ensure that runs are entered as numbers separated by commas and in brackets, Example: [1,2,4]")
+	
+	runLength = len(runArray)
 	
 	for i in range(n):
 		tag = sys.argv[i]
-		if tag[0] == "-":
-			if tag == "-h":
-				print_help()
-			if tag == "-d":
-				downsample = True
+		if tag[0] == "-" and tag in cmdInputs:
+			cmdInputs[tag]['active'] = True
+			
+			m = len(cmdInputs[tag]['names'])
+			for j in range(m):
 				try:
-					down_scale = int(sys.argv[i+1])
+					inputValue = sys.argv[i + j + 1]
+					if cmdInputs[tag]['types'][j] == 'float':
+						inputValue = float(inputValue)
+					elif cmdInputs[tag]['types'][j] == 'str':
+						if inputValue[0] == '-':
+							cmdInputs[tag]['active'] = False
+							print(f"Input {tag} has failed to read in input values, using defaults...")	
+					else:
+						inputValue = int(inputValue)
+					cmdInputs[tag]['variable'][j] = inputValue
 				except:
-					pass
-			if tag == "-sb":
-				scalebar = True
-			if tag == "-ct":
-				contrast = True
-				try:
-					contrast_factor = float(sys.argv[i+1])
-				except:
-					pass
-			if tag == "-cp":
-				crop_image = True
-				try:
-					crop_height = [int(sys.argv[i+1]),int(sys.argv[i+2])]
-					crop_width = [int(sys.argv[i+3]),int(sys.argv[i+4])]
-				except:
-					pass
-			if tag == "-bt":
-				black_hat_top_hat = True
-			if tag == "-bk":
-				stop_run = True
-				try:
-					start_run = int(sys.argv[i+1])
-				except:
-					pass
-			if tag == "-z":
-				zarr_output = True
-			if tag == "-m":
-				override_mean = True
-				try:
-					mean = float(sys.argv[i+1])
-					std = float(sys.argv[i+2])
-				except:
-					pass
-			if tag == "-n":
-				background_norm = True
-				try:
-					background_normalize_pos[0] = int(sys.argv[i+3])
-					background_normalize_pos[1] = int(sys.argv[i+4])
-					
-					n = 1 + int(sys.argv[i+2]) - int(sys.argv[i+1])
-					
-					for j in range(n):
-						background_correction.append(j+int(sys.argv[i+2]))
-				except:
-					print("Acquisition failed using defaults")
-			if tag == "-jms":
-				#Uses James's path convention, because I'm sick of commenting it out every time
-				base_path = '/media/james/' + sys.argv[2] + '/data/'
+					print(f"Input {tag} has failed to read in input values, using defaults...")
+		elif tag == '-jms':
+			base_path = '/media/' + getpass.getuser() + '/' + sys.argv[2] + '/data/'
 
 
+def printHelp():
+	print("This is a help for Seckler Post Processing Software.")
+	print("It expects to accept the input from MUSE REVA Preprocessing Software.")
+	print("Command: python post_processing.py <File Name> <Path to Data> <Run Array> <Options>")
+	print("")
+	for entry in cmdInputs:
+		print(generateHelpString(entry,cmdInputs[entry]))
+	quit()
+
+
+def generateHelpString(tag,entry):
+	helpString = ''
+	helpString += '-' + tag + ' '
+	for e in entry['names']:
+		helpString += '<' + e + '> '
+	helpString += '		'
+	helpString += entry['tooltips'] + ' '
+	return helpString
+
+
+def variableEncode():
+	global crop_height, crop_width, mean, std, breakPoint, contrastFactor,downScale,bckNormRuns,bckNormPos,outpath, data, pCores
+	crop_height = [cmdInputs['-cp']['variable'][0],cmdInputs['-cp']['variable'][1]]
+	crop_width = [cmdInputs['-cp']['variable'][2],cmdInputs['-cp']['variable'][3]]
+	mean = cmdInputs['-m']['variable'][0]
+	std = cmdInputs['-m']['variable'][1]
+	breakPoint = cmdInputs['-bk']['variable'][0]
+	contrastFactor = cmdInputs['-ct']['variable'][0]
+	downScale = cmdInputs['-d']['variable'][0]
+	pCores = cmdInputs['-p']['variable'][0]
+
+	if cmdInputs['-o']['active']:
+		outpath = cmdInputs['-o']['variable'][0]
+	else:
+		outpath = './output/'
+	
+	if cmdInputs['-n']['active']:
+		n = cmdInputs['-n']['variable'][1] - cmdInputs['-n']['variable'][0] + 1
+		for i in range(n):
+			bckNormRuns.append(i + cmdInputs['-n']['variable'][0])
+		bckNormPos = [cmdInputs['-n']['variable'][2],cmdInputs['-n']['variable'][3]]
+	data = data_loader_from_json()
+
+
+def data_loader_from_json():
+	dataPath = outpath + fname + '/data.dat'
+	if os.path.exists(dataPath):
+		with open(dataPath) as user_file:
+			file_contents = user_file.read()
+		data = json.loads(file_contents)
+		data['means'] = np.array(data['means'])
+		for i in data['allMeans']:
+			data['allMeans'][i] = np.array(data['allMeans'][i])
+		for i in data['shift']:
+			data['shift'][i] = np.array(data['shift'][i])
+	else:
+		data = {}
+	return data
+
+def data_saver_to_json():
+	dataPath = outpath + fname + '/data.dat'
+	
+	data['means'] = data['means'].tolist()
+	
+	for i in data['shift']:
+		data['shift'][i] = data['shift'][i].tolist()
+	
+	for i in data['allMeans']:
+		data['allMeans'][i] = data['allMeans'][i].tolist()
+	
+	with open(dataPath, 'w') as f:
+		json.dump(data, f)
+	
+	data['means'] = np.array(data['means'])
+	for i in data['allMeans']:
+		data['allMeans'][i] = np.array(data['allMeans'][i])
+	for i in data['shift']:
+		data['shift'][i] = np.array(data['shift'][i])
+
+
+def attributes_saver():
+	global oldConfig
+	oldConfig = attributes_loader()
+	ms.replace_directory(outpath + fname + "/")
+	
+	if cmdInputs['-v']['active']:
+		ms.replace_directory(outpath + fname + "/flythrough/")
+
+	
+	file_path = outpath + fname + "/configuration.txt"
+	with open(file_path, 'w') as file:
+		file.write(f'Filename: {fname}\n')
+		file.write(f'Base Path: {base_path}\n')
+		file.write(f'Run Analyzed: {runArray}\n')
+
+		for key, value in cmdInputs.items():
+			file.write(f"{value['name']}: {value['active']}, {value['names']}, {value['variable']} \n")
+
+def attributes_loader():
+	file_path = outpath + fname + "/configuration.txt"
+	if os.path.isfile(file_path):
+		with open(file_path, 'r') as file:
+			lines = file.readlines()
+		config = [line.strip() for line in lines]
+	else:
+		config = []
+	return config
+
+def validatate_zarr_path_and_determine_if_runs_are_valid():
+	path = base_path + fname
+	check_directory_structure(path)
+	
+	for zarrNumber in runArray:
+		path = base_path + fname + '/MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
+		check_directory_structure(path)
+
+def check_directory_structure(path):
+	if not os.path.isdir(path):
+		print(f"Path {path} is invalid, please correct...")
+		quit()
+
+def alignBetweenRuns():	
+	global data, runArray, runLength
+	passer = determine_if_we_need_to_redo_shift_calculation()
+	if not cmdInputs['-sk']['active'] and 'shift' not in data:
+		data['shift'] = {}
+		
+		validRuns = []
+		IMG = None
+		for i in tqdm(range(runLength)):
+			IMG = alignRuns(i,IMG)
+			if IMG is not None:
+				validRuns.append(runArray[i])
+			else:
+				runArray = validRuns
+				runLength = len(runArray)
+				break
+		print("Calculated Shifts to coregister between runs")
+	elif 'shift' not in data or passer:
+		data['shift'] = {}
+		for zarrNumber in runArray:
+			runNumber = str(zarrNumber)
+			data['shift'][runNumber] = np.array([0,0])
+		print("Skipping coregistration step, all image shifts are assumed to be 0")
+	else:
+		print("Old shift values detected, using those values")
+	print(data['shift'])
+
+
+def alignRuns(i,iIMG):
+	global data, runArray, runLength
+	if i == 0:
+		iIMG = get_image_to_align_from_zarr(i)
+		data['shift'][str(runArray[i])] = np.array([0,0])
+		return iIMG
+	fIMG = get_image_to_align_from_zarr(i)
+	if iIMG.shape != fIMG.shape:
+		print(f"Runs {runArray[i-1]} and {runArray[i]} are not the same shape. Truncating analysis at run number {runArray[i-1]}")
+		return None
+	else:
+		iIMG, data['shift'][str(runArray[i])] = ms.coregister(iIMG,fIMG)
+		return iIMG
 	
 
-def calculate_mean_intensity(filelist):
-	global errorlog
-	counter = 0
-	means = []
-	for z in filelist:
-		try:
-			means, counter = load_image_and_get_mean_as_array(z,counter,means)
-		except TypeError:#This is where we need to go in and make it revert to tiff stack
-			errorlog.append(f"File {z} not found and it was skipped for processing")
-	
-	means = np.array(means)
-	m = np.average(means)
-	std = np.std(means)
-	return m, std
+def get_image_to_align_from_zarr(i):
+	if i == 0:
+		index = -1
+	else:
+		index = 0
+	path = base_path + fname + '/MUSE_stitched_acq_'  + str(runArray[i]) + '.zarr'
+	zzarr = ms.get_just_images_from_zarr(path)
+	IMG = np.array(zzarr[index])
+	IMG = IMG[crop_height[0]:crop_height[1],crop_width[0]:crop_width[1]]
+	return IMG
 
-def find_useable_images_and_reports_index(filelist,mean,std):
-	global errorlog
-	
-	index = {}
-	
-	counter = 0
-	
-	threshhold = 4 * std
-	
-	zeros = 0
-	
-	for z in filelist:
-		try:
-			img, attrs = ms.get_image_from_zarr(z)
-			for i in tqdm(range(len(img))):
-				m = np.mean(img[i])
-				if np.abs(mean-m) < threshhold and m > 0:
-					index[counter] = {'file':z,'index':i,'run':get_run_from_index_number(z)}
-				elif m > 0:
-					cv.imwrite(f"./output/exclude_{i}.png",img[i]/16)
-                    #Put in code in to track when images are bad as opposed to m == 0
-#				elif m == 0:
-#					zeros += 1
-				counter += 1
-		except TypeError:
-			errorlog.append(f"File {z} not found and it was skipped for processing")
-	
-	return index
 
-def load_image_and_get_mean_as_array(zpath,means):
+def validate_data_file_and_ensure_data_is_correct():
+	global data, mean, std
+	
+	if 'means' not in data or 'allMeans' not in data or determine_if_we_need_to_redo_shift_calculation():
+		compute_means_for_all_arrays()
+	
+	if not cmdInputs['-m']['active']:
+		mean = np.mean(data['means'])
+		std = np.std(data['means'])
+		print(f'Calculated Mean Intensity of all data {mean}, with a standard deviation of {std}')
+	if std == 0:
+		std = mean
+	data['mean'] = mean
+	data['std'] = std
+
+	data['offset'] = {}
+	offset = 0
+	for i in data['allMeans']:
+		data['offset'][i] = offset
+		for j in range(data['allMeans'][i].shape[0]):
+			if data['allMeans'][i][j] == 0:
+				offset += 1
+				break
+			else:
+				offset += 1
+		
+
+	
+	if 'shape' not in data:
+		path = base_path + fname + '/MUSE_stitched_acq_'  + str(runArray[0]) + '.zarr'
+		img = ms.get_just_images_from_zarr(path)
+		data['shape'] = img[0].shape
+	
+	for zarrNumber in runArray:
+		path = base_path + fname + '/MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
+		img = ms.get_just_images_from_zarr(path)
+		if data['shape'][0] != img[0].shape[0] and data['shape'][1] != img[0].shape[1]:
+			print(f'Run number {zarrNumber} does not have the same shape as {runArray[0]} please process these two runs separately, crop them to the same size, and stitch them together later...')
+			quit()
+
+
+def compute_means_for_all_arrays():
+	global data
+	data['means'] = []
+	data['allMeans'] = {}
+	for zarrNumber in tqdm(runArray):
+		path = base_path + fname + '/MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
+		data['means'], data['allMeans'][str(zarrNumber)] = load_image_and_get_mean_as_array(path,data['means'],str(zarrNumber))
+	data['means'] = np.array(data['means'])
+
+
+def load_image_and_get_mean_as_array(zpath,means,runNumber):
 	global x, y
 	img, attrs = ms.get_image_from_zarr(zpath)
 	x = img.shape[1]
 	y = img.shape[2]
+#	print(zpath,img.shape[0])
 	
-	
-	temp_means = da.mean(img,axis=(1,2))
-	temp_means = temp_means.compute()
-	
+	temp_means = np.zeros(img.shape[0])
+	for i in range(img.shape[0]):
+		if data['shift'][str(runNumber)][0] != 0 or data['shift'][str(runNumber)][1] != 0:
+			image = ms.shiftImage(img[i],data['shift'][str(runNumber)])
+		else:
+			image = img[i]
+		temp_means[i] = np.mean(image[crop_height[0]:crop_height[1],crop_width[0]:crop_width[1]])
+		if temp_means[i] == 0:
+			break
+		
 	for m in temp_means:
 		if m > 0:
 			means.append(m)
-	return means
-
-def get_run_from_index_number(z):
-	run = z.split('.')[-2]
-	return int(run.split('_')[-1])
-
-
-def process_image(img,mean,radius,align_image=None):
-	image = img - np.mean(img)
-	img = img + mean
-
-	size = np.amax(img.shape)
-	img = ms.add_smaller_image_to_larger(img,size)
-	crop,mask = ms.segment_out_the_nerve(img)
-	
-	x0 = int(crop[0])
-	y0 = int(crop[1])
-	
-	image = ms.center_on_nerve(img,x0,y0)
-	
-	if radius > size:
-		image = ms.add_smaller_image_to_larger(image,radius)
-	else:
-		image = ms.crop_down_to_size(image,radius)
-	
-	
-	if align_image is None:
-		print("Original,",x0,y0)
-	else:
-		image, s = ms.coregister(align_image,image)
-	return image
-		
-		
-def overlay_images(image1, image2):
-	# Ensure both images have the same shape
-	if image1.shape != image2.shape:
-		raise ValueError("Both images must have the same dimensions.")
-	
-	# Create a copy of the second image to avoid modifying the original
-	result_image = np.copy(image2)
-	
-	# Create a mask where image1 is not black (assuming grayscale images)
-	mask = image1 > 0
-	
-	# Overlay image1 on top of image2 using the mask
-	result_image[mask] = image1[mask]
-	return result_image
-
-def normalize_mean_and_enhance_contrast(img):
-#	print(np.mean(img),mean)
-	zero = np.mean(img)
-	
-	image = img - zero
-	image = contrast_factor * image	
-	image = image + mean
-	
-	# New intensity = contrast_factor * (Old intensity - 127) + 127
-	
-	image = np.clip(image,0,4095)
-	return image
-
-def img_processer(file_name,img_align,image_offset = 0,run_number = 0):
-	global difference, zfull
-	run_number = int(run_number)
-	img, attrs = ms.get_image_from_zarr(file_name)
-	
-	if img_align is None:
-		img_align = np.array(img[0])
-	n = int(img.shape[0] / 1)
-	image = None
-	
-	counter = image_offset
-	for i in tqdm(range(n)):
-		pre_index = 1 * i - 1
-		index = 1 * i + 0
-		
-		#be suspicious of this code
-		m = np.mean(img[index])
-		dist_from_mean = np.abs(mean - m)
-		
-		if m > 0 and (dist_from_mean < 4 * std or stop_run) and i >= start_run:
-			image = np.array(img[index])
-			
-			if background_norm and run_number in background_correction:
-				image = ms.normalize_image_by_column(image,background_normalize_pos)
-				
-			
-			image, shift= ms.coregister(img_align,image)
-			
-			img_align = ms.copy(image)
-			
-			if crop_image:
-				image = image[crop_height[0]:crop_height[1],crop_width[0]:crop_width[1]]
-			
-			if contrast:
-				image = normalize_mean_and_enhance_contrast(image)
-			else:
-				image = ms.normalize_to_mean(image,mean)
-			
-			if black_hat_top_hat:
-				kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(elipse_size,elipse_size))
-				topHat = cv.morphologyEx(image, cv.MORPH_TOPHAT, kernel)
-				blackHat = cv.morphologyEx(image, cv.MORPH_BLACKHAT, kernel)
-				image = image + topHat - blackHat
-
-			
-			if scalebar:
-				image = ms.add_scalebar_to_image(image,4095)
-			
-			if downsample:
-				down_points = (int(image.shape[1] / down_scale), int(image.shape[0] / down_scale))
-				image = cv.resize(image, down_points, interpolation= cv.INTER_LINEAR)
-			
-			if counter < 100:
-				if counter < 10:
-					c = '00' + str(counter)
-				else:
-					c = '0' + str(counter)
-			else:
-				c = str(counter)
-			
-			
-			if zarr_output:
-				zfull[counter] = image
-			else:
-				cv.imwrite("./output/" + fname + f"/image_{c}.png",image/16)
-			counter += 1
-			
-			if stop_run:
-				break
-		elif m == 0:
-			print(f"Run ends at {i-1} no further images are usable")
+		else:
 			break
-	return img_align, counter	
+	
+	return means, temp_means
+	
+
+def determine_if_we_need_to_redo_shift_calculation():
+	runs = f"Run Analyzed: {runArray}"
+	if runs in oldConfig:
+		passer = False
+	else:
+		passer = True
+	return passer
+
 
 def create_zarr_file():
-	global zimg, x, y, z
-	zimg = ms.create_basic_zarr_file(outpath,fname)
+	global zimg, x, y
+	zimg = ms.create_basic_zarr_file(outpath + fname + "/",fname)
 	
 	z = means.shape[0]
 	if crop_image:
 		x = crop_height[1] - crop_height[0]
 		y = crop_width[1] - crop_width[0]
+	else:
+		x = data['shape'][0]
+		y = data['shape'][1]
 	
 	zshape, zchunk = ms.shape_definer(z,x,y,1)
 	full = zimg.zeros('0', shape=zshape, chunks=zchunk, dtype="i2" )
 	return zimg, full
+
+
+def compileIndices(runNumber):
+	maxListSize = 102
+	if cmdInputs['-bk']['active']:
+		indices = [breakPoint]
+	else:
+		t = data['allMeans'][str(runNumber)].shape[0]
+		n = int(t / maxListSize - 1) + 1
 		
-def finish_making_zarr_file():
-	zshape5, zchunk5 = ms.shape_definer(z,x,y,5)
-	down5x = zimg.zeros('1', shape=zshape5, chunks=zchunk5, dtype="i2" )
-	zshape10, zchunk10 = ms.shape_definer(z,x,y,10)
-	down10x = zimg.zeros('2', shape=zshape10, chunks=zchunk10, dtype="i2" )
-	
-	for i in range(z):
-		down5x[i] = cv.resize(zfull[i],dsize = (zshape5[2],zshape5[1]),interpolation=cv.INTER_CUBIC)
-		down10x[i] = cv.resize(zfull[i],dsize = (zshape10[2],zshape10[1]),interpolation=cv.INTER_CUBIC) 
-
-	ms.copy_zarr_attr(outpath,fname)
-	return down5x, down10x
-
-def attributes_saver():
-	file_path = outpath + fname + "/configuration.txt"
-	
-	dictionary = {
-	"Downsample":str(downsample),
-	"Scalebar":str(scalebar),
-	"Contrasting":str(contrast),
-	"Cropping":str(crop_image),
-	"Image Break":str(stop_run),
-	"Top Hat/Black Hat Contrasting":str(black_hat_top_hat),
-	"Zarr Output":str(zarr_output),
-	"Mean Override":str(override_mean),
-	"Starting Run":str(zarr_number_i),
-	"Ending Run":str(zarr_number_f)
-	}
-	if stop_run:
-		dictionary['Break Image Index'] = str(start_run)
-	if contrast:
-		dictionary['Contrast Factor'] = str(contrast_factor)
-	if crop_image:
-		dictionary['Crop Height Min'] = str(crop_height[0])
-		dictionary['Crop Height Max'] = str(crop_height[1])
-		dictionary['Crop Width Min'] = str(crop_width[0])
-		dictionary['Crop Width Max'] = str(crop_width[1])
-	if downsample:
-		dictionary['Downsampling Factor'] = str(down_scale)
-	if override_mean:
-		dictionary['Mean Lock'] = str(mean)
-	if background_norm:
-		dictionary['Background normalization run'] = ''
-		for r in background_correction:
-			dictionary['Background normalization run'] += str(str(r) + ", ")
-			dictionary['Background normalization position'] = str(background_normalize_pos[0]) + ", " + str(background_normalize_pos[1])
-
-	
-	with open(file_path, 'w') as file:
-		for key, value in dictionary.items():
-			file.write(f"{key}: {value}\n")
-
-
-	
-
-inputparser()
-
-ms.replace_directory(outpath + fname + "/")
-attributes_saver()
-
-n = zarr_number_f - zarr_number_i + 1
-img_to_align = None
-c = 0
-
-#Put in code to check to make sure that zarr_number_i and zarr_number_f are both less than the total acquistion number
-
-if not override_mean:
-	means = []
-	for i in range(n):
-		zarr_number = str(zarr_number_i + i)
-		path = base_path + fname + '/MUSE_stitched_acq_'  + zarr_number + '.zarr'
-		means = load_image_and_get_mean_as_array(path,means)
 		
-	means = np.array(means)
+		indices = []
+		count = 0
+		
+		for i in range(n):
+			indices.append([])
+			for j in range(maxListSize):
+				indices[i].append(count)
+				count += 1
+				if count >= t:
+					break
+	return indices
 
-	mean = np.mean(means)
-	std = np.std(means)
-	print(f'Calculated Mean Intensity of all data {mean}, with a standard deviation of {std}')
-elif std == 0:
-	std = mean
 
-if zarr_output:
+def img_process(index):
+	global zfull
+	if data['allMeans'][runNumber][index] == 0: return False
+	
+	image = np.array(rawImage[index])
+
+	if data['shift'][str(runNumber)][0] != 0 or data['shift'][str(runNumber)][1] != 0:
+		image = ms.shiftImage(image,data['shift'][runNumber])
+	
+	m = data['allMeans'][runNumber][index]
+	
+	#performs basic mean locking and contrasting
+	image = image - m
+	image = contrastFactor * image
+	image = image + mean
+	image = image[crop_height[0]:crop_height[1],crop_width[0]:crop_width[1]]
+	
+	#performs enhanced contrasting
+	if cmdInputs['-bt']['active']:
+		topHat = cv.morphologyEx(image, cv.MORPH_TOPHAT, kernel)
+		blackHat = cv.morphologyEx(image, cv.MORPH_BLACKHAT, kernel)
+		image = image + topHat - blackHat
+	
+	image = np.clip(image,0,4095)
+	
+	if cmdInputs['-sb']['active']:
+		image = ms.add_scalebar_to_image(image,4095)
+
+	if cmdInputs['-d']['active']:
+		down_points = (int(image.shape[1] / down_scale), int(image.shape[0] / down_scale))
+		image = cv.resize(image, down_points, interpolation= cv.INTER_LINEAR)
+	
+	#Determines counter string
+	counter = data['offset'][runNumber] + index
+	if counter < 1000:
+		if counter < 10:
+			c = '000' + str(counter)
+		elif counter < 100:
+			c = '00' + str(counter)
+		else:
+			c = '0' + str(counter)
+	else:
+		c = str(counter)
+	
+	if cmdInputs['-z']['active']:
+		zfull[counter] = image
+	else:
+		cv.imwrite("./output/" + fname + f"/image_{c}.png",image/16)
+
+	if cmdInputs['-v']['active']:
+		scale = np.amax(image.shape) / base_video_resolution
+		if scale > 2:
+			scale = 2
+		resolution = (int(image.shape[1] / scale), int(image.shape[0] / scale))
+		if resolution[0] % 2 != 0:
+			resolution = (resolution[0] + 1, resolution[1])
+		if resolution[1] % 2 != 0:
+			resolution = (resolution[0], resolution[1] + 1)
+		video = cv.resize(image, resolution, interpolation= cv.INTER_LINEAR)
+		cv.imwrite("./output/" + fname + f"/flythrough/image_{c}.png",video/16)
+	
+	return True
+
+
+setup()
+
+if cmdInputs['-z']['active']:
 	zimg, zfull = create_zarr_file()
 
-for i in range(n):
-	zarr_number = str(zarr_number_i + i)
-	path = base_path + fname + '/MUSE_stitched_acq_'  + zarr_number + '.zarr'
-	img_to_align, c = img_processer(path,img_to_align, c, zarr_number)
-	if stop_run:
-		break
 
-if zarr_output:
+for zarrNumber in tqdm(runArray):
+	runNumber = str(zarrNumber)
+#	print(f"Now procressing run # {zarrNumber}, with {data['offset'][runNumber]} valid images out of a total of {data['allMeans'][runNumber].shape[0]} images")
+	path = base_path + fname + '/MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
+	rawImage = ms.get_just_images_from_zarr(path)
+	indicies = compileIndices(zarrNumber)
+	for indexs in indicies:
+		if len(indexs) < pCores:
+			threadsToStart = len(indexs)
+		else:
+			threadsToStart = pCores
+		if len(indexs) == 1:
+			results = img_process(indexs[0])
+		elif __name__ == "__main__":
+			with multiprocessing.Pool(processes=threadsToStart) as pool:
+				results = pool.map(img_process, indexs)
+
+
+if cmdInputs['-z']['active']:
 	down5x, down10x = finish_making_zarr_file()
 
-	
-	
-	
+data_saver_to_json()
 

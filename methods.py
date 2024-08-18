@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings("ignore")
+
 import zarr, glob, os, shutil, math, json
 import scipy as sp
 import skimage as sk
@@ -65,16 +68,19 @@ def get_image_from_zarr(path):
 		zimg = da.from_zarr(path, component="muse/stitched/")
 		return zimg, None
 	except:
-		print("Filename, "+path+" is corrupted and did not produce a file from zarr file...")
+		print("Filename, "+path+" is corrupted or incorrect and did not produce a file from zarr file...")
 		quit()
 
+def get_just_images_from_zarr(path):
+	img, zattr = get_image_from_zarr(path)
+	return img
 
 def get_image_from_zarr_old(path):
 	zfile = zarr.open(path)
 	try:
 		return zfile["/muse/stitched/"], zfile.attrs
 	except KeyError:
-		print("Filename, "+path+" is corrupted and did not produce a file from zarr file...")
+		print("Filename, "+path+" is corrupted or incorrect and did not produce a file from zarr file...")
 		return None, None
 
 
@@ -264,9 +270,84 @@ def segment_out_the_nerve(img):
 	
 	return [x,y,diameter], mask
 
-
+def segment_out_the_nerve_png(img):
+	mean = np.mean(img)
+	img = img - mean
+	img = img + threshhold
+	
+	std = np.std(img)
+	
+	img_threshhold = threshhold + 0.00 * std
+	
+	ret, thresh = cv.threshold(img, img_threshhold, 255, 0)
+	thresh = np.array(thresh, np.uint8)
+	
+	heirarchy, contours = cv.findContours(thresh, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+	
+	nerves_size = -1
+	nerve_cluster = -1
+	for h in heirarchy:
+		if len(h) > nerves_size:
+			nerves_size = len(h)
+			nerve_cluster = h
 
 	
+	dx = [100000,-1]
+	dy = [100000,-1]
+	
+	x = 0
+	y = 0
+	counter = 0
+	
+	nerve = np.zeros(img.shape)
+	
+	for pos in nerve_cluster:
+		nerve[pos[0][1]][pos[0][0]] = 255
+		if pos[0][0] < dx[0]:
+			dx[0] = pos[0][0]
+		elif pos[0][0] > dx[1]:
+			dx[1] = pos[0][0]
+		if pos[0][1] < dy[0]:
+			dy[0] = pos[0][1]
+		elif pos[0][1] > dx[1]:
+			dy[1] = pos[0][1]
+		x += pos[0][0]
+		y += pos[0][1]
+		counter += 1
+	
+	x = x / counter
+	y = y / counter
+	
+	for i in range(len(nerve_cluster)):
+		start_pixel = tuple(nerve_cluster[i - 1][0])
+		end_pixel = tuple(nerve_cluster[i][0])
+		cv.line(nerve, start_pixel, end_pixel, 255, 1)
+
+#	cv.imwrite(f"./output/raw_{z}.png",img)
+
+#	cv.imwrite(f"./output/nerve_{z}.png",nerve)
+	for i in range(nerve.shape[0]):
+		if nerve[i][0] > 0:
+			nerve[i][1] = 255
+			nerve[i][0] = 0
+		if nerve[i][-1] > 0:
+			nerve[i][-2] = 255
+			nerve[i][-1] = 0
+	
+	nerve = nerve.astype('uint8')
+	pixel = (0,0)
+	_, mask = cv.threshold(nerve, 1, 255, cv.THRESH_BINARY)
+	h, w = nerve.shape[:2]
+	mask_fill = np.zeros((h+2, w+2), np.uint8)
+	
+	cv.floodFill(mask, mask_fill, pixel, 255)
+	
+	mask = np.clip(cv.bitwise_not(mask),0,1)
+	
+	diameter = np.amax(np.array(np.abs(dx[1]-dx[0]),np.abs(dy[1]-dy[0])))
+	
+	return mask
+
 
 
 
@@ -301,7 +382,7 @@ def save_arributes(name,data):
 		json.dump(data, json_file)
 
 def load_attributes(name):
-	path = name + '/attibutes_' + '.json'
+	path = name + '/attibutes.json'
 	with open(path, 'r') as json_file:
 		data = json.load(json_file)
 	return data
@@ -410,6 +491,10 @@ def coregister(img1,img2):
 	shift, err, diff_phase = sk.registration.phase_cross_correlation(img1,img2)	
 	img2 = sp.ndimage.shift(img2,shift)
 	return img2, shift
+
+def shiftImage(img,shift):
+	img = sp.ndimage.shift(img,shift)
+	return img
 
 def center_on_nerve(img,y,x):
 	x0 = int(x - (img.shape[0] / 2))
