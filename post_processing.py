@@ -24,6 +24,7 @@ cmdInputs = {
 	}
 
 
+
 def setup():
 	print("Setting up data structures and validating data...")
 	inputParser()
@@ -82,6 +83,7 @@ def inputParser():
 			base_path = '/media/' + getpass.getuser() + '/' + sys.argv[2] + '/data/'
 
 
+
 def printHelp():
 	print("This is a help for Seckler Post Processing Software.")
 	print("It expects to accept the input from MUSE REVA Preprocessing Software.")
@@ -103,7 +105,7 @@ def generateHelpString(tag,entry):
 
 
 def variableEncode():
-	global crop_height, crop_width, mean, std, breakPoint, contrastFactor,downScale,bckNormRuns,bckNormPos,outpath, data, pCores, convolutionCircle
+	global crop_height, crop_width, mean, std, breakPoint, contrastFactor,downScale,bckNormRuns,bckNormPos,outpath, data, pCores, convolutionCircle, kernel, smconvolutionCircle
 	crop_height = [cmdInputs['-cp']['variable'][0],cmdInputs['-cp']['variable'][1]]
 	crop_width = [cmdInputs['-cp']['variable'][2],cmdInputs['-cp']['variable'][3]]
 	mean = cmdInputs['-m']['variable'][0]
@@ -126,6 +128,17 @@ def variableEncode():
 		cv.circle(convolutionCircle, center, cmdInputs['-n']['variable'][0], 1, 0)
 		convolutionCircle = convolutionCircle / np.sum(convolutionCircle)
 		
+		radius = 20
+		diameter = 2 * radius + 1
+		center = (radius,radius)
+		smconvolutionCircle = np.zeros((diameter,diameter))
+		cv.circle(smconvolutionCircle, center, radius, 1, 0)
+		smconvolutionCircle = smconvolutionCircle / np.sum(smconvolutionCircle)
+	
+	if cmdInputs['-bt']['active']:
+		elipse_size = 30
+		kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(elipse_size,elipse_size))
+
 		
 	data = data_loader_from_json()
 
@@ -496,40 +509,22 @@ def img_process(index):
 
 
 def perform_background_normalization(image):
-	h,w = image.shape
-	nH = h + 2 * cmdInputs['-n']['variable'][0]
-	nW = w + 2 * cmdInputs['-n']['variable'][0]
-	maskImage = np.zeros((nH,nW))
-	maskImage[cmdInputs['-n']['variable'][0]:cmdInputs['-n']['variable'][0]+h,cmdInputs['-n']['variable'][0]:cmdInputs['-n']['variable'][0]+w] = image
-	convolution = cv.filter2D(src=maskImage, ddepth=-1, kernel=convolutionCircle)
-	convolution = convolution[cmdInputs['-n']['variable'][0]:cmdInputs['-n']['variable'][0]+h,cmdInputs['-n']['variable'][0]:cmdInputs['-n']['variable'][0]+w]
-#	cv.imwrite("./output/convol.png",convolution//16)
-	return convolution
-
-
-#def perform_background_normalization_(image):
-	h,w = image.shape
-	nH = h + 2 * cmdInputs['-n']['variable'][0]
-	nW = w + 2 * cmdInputs['-n']['variable'][0]
-	maskImage = np.zeros((nH,nW))
-	maskImage[cmdInputs['-n']['variable'][0]:cmdInputs['-n']['variable'][0]+h,cmdInputs['-n']['variable'][0]:cmdInputs['-n']['variable'][0]+w] = image
-	convolution = np.zeros(image.shape)
+#	h,w = image.shape
+#	nH = h + 2 * cmdInputs['-n']['variable'][0]
+#	nW = w + 2 * cmdInputs['-n']['variable'][0]
+#	maskImage = np.zeros((nH,nW))
+#	maskImage[cmdInputs['-n']['variable'][0]:cmdInputs['-n']['variable'][0]+h,cmdInputs['-n']['variable'][0]:cmdInputs['-n']['variable'][0]+w] = image
+#	convolution = cv.filter2D(src=maskImage, ddepth=-1, kernel=convolutionCircle)
+#	convolution = convolution[cmdInputs['-n']['variable'][0]:cmdInputs['-n']['variable'][0]+h,cmdInputs['-n']['variable'][0]:cmdInputs['-n']['variable'][0]+w]
+	convolution = cv.filter2D(src=image, ddepth=-1, kernel=convolutionCircle)
 	
-	for i in range(h-1):
-		for j in range(w-1):
-			convolution[i][j] = get_convolution(maskImage,(i+cmdInputs['-n']['variable'][0],j+cmdInputs['-n']['variable'][0]))
-	print(np.amax(convolution))
-	cv.imwrite("./output/convol.png",convolution)
-	return convolution
+#	fineDetail = cv.filter2D(src=image, ddepth=-1, kernel=smconvolutionCircle)
+#	fineDetail = image - fineDetail
+#	fineDetail = 2 * fineDetail / np.amax(np.abs(fineDetail))
+#	convolution = image - convolution
+#	convolution = convolution * fineDetail + convolution
 	
-def get_convolution(img,point):
-	x = point[0] - convolutionCircle.shape[0] // 2
-	y = point[1] - convolutionCircle.shape[1] // 2
-	subset = img[x: x + convolutionCircle.shape[0], y: y + convolutionCircle.shape[1]]
-	convol = subset * convolutionCircle
-	convol = np.sum(convol)
-	convol = convol / convolutionNorm
-	return convol
+	return convolution
 
 
 setup()
