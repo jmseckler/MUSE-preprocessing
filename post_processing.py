@@ -14,7 +14,7 @@ cmdInputs = {
 	'-d':{"name":"Downsample Image","types":['int'],"names":['scaling factor'],"variable":[4],"active":False,"tooltips":"Downscale data by whatever factor the user inputs. Default: 4"},
 	'-h':{"name":"Help","types":[],"names":[],"variable":[],"active":False,"tooltips":"Generates and prints help message"},
 	'-m':{"name":"Mean Locking","types":['float','float'],"names":['mean', 'std'],"variable":[2055.0,10000],"active":False,"tooltips":"Override mean to save time, you must input the mean and the standard deviation as integers of floating point values"},
-	'-n':{"name":"Normalize Background","types":['int','int','int','int'],"names":['run start', 'run end','background min height','background max height'],"variable":[-1,-1,0,-1],"active":False,"tooltips":"Normalizes the background of a run when the light was misaligned"},
+	'-n':{"name":"Normalize Background","types":['int'],"names":['radius'],"variable":[150],"active":False,"tooltips":"Normalizes the background of a run when the light was misaligned, user must input the radius for normalization convolution. Default: 150 pixels"},
 	'-o':{"name":"Override Output","types":['str'],"names":['path'],"variable":["./output/"],"active":False,"tooltips":"Changes output directory"},	
 	'-p':{"name":"Processors Used","types":['int'],"names":['processors'],"variable":[4],"active":False,"tooltips":"Sets the maximum number of processing cores that program will used. Default is 4"},
 	'-sb':{"name":"Add Scalebar","types":[],"names":[],"variable":[],"active":False,"tooltips":"Adds scalebar to images outputed"},
@@ -103,7 +103,7 @@ def generateHelpString(tag,entry):
 
 
 def variableEncode():
-	global crop_height, crop_width, mean, std, breakPoint, contrastFactor,downScale,bckNormRuns,bckNormPos,outpath, data, pCores
+	global crop_height, crop_width, mean, std, breakPoint, contrastFactor,downScale,bckNormRuns,bckNormPos,outpath, data, pCores, convolutionCircle
 	crop_height = [cmdInputs['-cp']['variable'][0],cmdInputs['-cp']['variable'][1]]
 	crop_width = [cmdInputs['-cp']['variable'][2],cmdInputs['-cp']['variable'][3]]
 	mean = cmdInputs['-m']['variable'][0]
@@ -118,11 +118,15 @@ def variableEncode():
 	else:
 		outpath = './output/'
 	
+	#Defines convolution circle for background normalization:
 	if cmdInputs['-n']['active']:
-		n = cmdInputs['-n']['variable'][1] - cmdInputs['-n']['variable'][0] + 1
-		for i in range(n):
-			bckNormRuns.append(i + cmdInputs['-n']['variable'][0])
-		bckNormPos = [cmdInputs['-n']['variable'][2],cmdInputs['-n']['variable'][3]]
+		diameter = 2 * cmdInputs['-n']['variable'][0] + 1
+		center = (cmdInputs['-n']['variable'][0],cmdInputs['-n']['variable'][0])
+		convolutionCircle = np.zeros((diameter,diameter))
+		cv.circle(convolutionCircle, center, cmdInputs['-n']['variable'][0], 1, 0)
+		convolutionCircle = convolutionCircle / np.sum(convolutionCircle)
+		
+		
 	data = data_loader_from_json()
 
 
@@ -261,8 +265,9 @@ def get_image_to_align_from_zarr(i):
 def validate_data_file_and_ensure_data_is_correct():
 	global data, mean, std
 	
-	if 'means' not in data or 'allMeans' not in data or determine_if_we_need_to_redo_shift_calculation():
-		compute_means_for_all_arrays()
+#	if 'means' not in data or 'allMeans' not in data or determine_if_we_need_to_redo_shift_calculation():
+#		compute_means_for_all_arrays()
+	compute_means_for_all_arrays()
 	
 	if not cmdInputs['-m']['active']:
 		mean = np.mean(data['means'])
@@ -275,7 +280,8 @@ def validate_data_file_and_ensure_data_is_correct():
 
 	data['offset'] = {}
 	offset = 0
-	for i in data['allMeans']:
+	for run in runArray:
+		i = str(run)
 		data['offset'][i] = offset
 		for j in range(data['allMeans'][i].shape[0]):
 			if data['allMeans'][i][j] == 0:
@@ -302,6 +308,25 @@ def validate_data_file_and_ensure_data_is_correct():
 def compute_means_for_all_arrays():
 	global data
 	data['means'] = []
+	
+	if 'allMeans' not in data:
+		data['allMeans'] = {}
+	for zarrNumber in tqdm(runArray):
+		if str(zarrNumber) not in data['allMeans']:
+			path = base_path + fname + '/MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
+			data['allMeans'][str(zarrNumber)] = load_image_and_get_mean_as_array(path,data['means'],str(zarrNumber))
+		for m in data['allMeans'][str(zarrNumber)]:
+			if m > 0:
+				data['means'].append(m)
+			else:
+				break
+		
+	data['means'] = np.array(data['means'])
+
+
+def compute_means_for_all_arrays_():
+	global data
+	data['means'] = []
 	data['allMeans'] = {}
 	for zarrNumber in tqdm(runArray):
 		path = base_path + fname + '/MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
@@ -326,13 +351,32 @@ def load_image_and_get_mean_as_array(zpath,means,runNumber):
 		if temp_means[i] == 0:
 			break
 		
+	return temp_means
+
+def load_image_and_get_mean_as_array_(zpath,means,runNumber):
+	global x, y
+	img, attrs = ms.get_image_from_zarr(zpath)
+	x = img.shape[1]
+	y = img.shape[2]
+#	print(zpath,img.shape[0])
+	
+	temp_means = np.zeros(img.shape[0])
+	for i in range(img.shape[0]):
+		if data['shift'][str(runNumber)][0] != 0 or data['shift'][str(runNumber)][1] != 0:
+			image = ms.shiftImage(img[i],data['shift'][str(runNumber)])
+		else:
+			image = img[i]
+		temp_means[i] = np.mean(image[crop_height[0]:crop_height[1],crop_width[0]:crop_width[1]])
+		if temp_means[i] == 0:
+			break
+		
 	for m in temp_means:
 		if m > 0:
 			means.append(m)
 		else:
 			break
 	
-	return means, temp_means
+	return means,temp_means
 	
 
 def determine_if_we_need_to_redo_shift_calculation():
@@ -362,7 +406,7 @@ def create_zarr_file():
 
 
 def compileIndices(runNumber):
-	maxListSize = 102
+	maxListSize = 100
 	if cmdInputs['-bk']['active']:
 		indices = [breakPoint]
 	else:
@@ -395,7 +439,11 @@ def img_process(index):
 	m = data['allMeans'][runNumber][index]
 	
 	#performs basic mean locking and contrasting
-	image = image - m
+	if cmdInputs['-n']['active']:
+		meanMap = perform_background_normalization(image)
+		image = image - meanMap
+	else:
+		image = image - m
 	image = contrastFactor * image
 	image = image + mean
 	image = image[crop_height[0]:crop_height[1],crop_width[0]:crop_width[1]]
@@ -447,6 +495,43 @@ def img_process(index):
 	return True
 
 
+def perform_background_normalization(image):
+	h,w = image.shape
+	nH = h + 2 * cmdInputs['-n']['variable'][0]
+	nW = w + 2 * cmdInputs['-n']['variable'][0]
+	maskImage = np.zeros((nH,nW))
+	maskImage[cmdInputs['-n']['variable'][0]:cmdInputs['-n']['variable'][0]+h,cmdInputs['-n']['variable'][0]:cmdInputs['-n']['variable'][0]+w] = image
+	convolution = cv.filter2D(src=maskImage, ddepth=-1, kernel=convolutionCircle)
+	convolution = convolution[cmdInputs['-n']['variable'][0]:cmdInputs['-n']['variable'][0]+h,cmdInputs['-n']['variable'][0]:cmdInputs['-n']['variable'][0]+w]
+#	cv.imwrite("./output/convol.png",convolution//16)
+	return convolution
+
+
+#def perform_background_normalization_(image):
+	h,w = image.shape
+	nH = h + 2 * cmdInputs['-n']['variable'][0]
+	nW = w + 2 * cmdInputs['-n']['variable'][0]
+	maskImage = np.zeros((nH,nW))
+	maskImage[cmdInputs['-n']['variable'][0]:cmdInputs['-n']['variable'][0]+h,cmdInputs['-n']['variable'][0]:cmdInputs['-n']['variable'][0]+w] = image
+	convolution = np.zeros(image.shape)
+	
+	for i in range(h-1):
+		for j in range(w-1):
+			convolution[i][j] = get_convolution(maskImage,(i+cmdInputs['-n']['variable'][0],j+cmdInputs['-n']['variable'][0]))
+	print(np.amax(convolution))
+	cv.imwrite("./output/convol.png",convolution)
+	return convolution
+	
+def get_convolution(img,point):
+	x = point[0] - convolutionCircle.shape[0] // 2
+	y = point[1] - convolutionCircle.shape[1] // 2
+	subset = img[x: x + convolutionCircle.shape[0], y: y + convolutionCircle.shape[1]]
+	convol = subset * convolutionCircle
+	convol = np.sum(convol)
+	convol = convol / convolutionNorm
+	return convol
+
+
 setup()
 
 if cmdInputs['-z']['active']:
@@ -459,16 +544,20 @@ for zarrNumber in tqdm(runArray):
 	path = base_path + fname + '/MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
 	rawImage = ms.get_just_images_from_zarr(path)
 	indicies = compileIndices(zarrNumber)
-	for indexs in indicies:
-		if len(indexs) < pCores:
-			threadsToStart = len(indexs)
-		else:
-			threadsToStart = pCores
-		if len(indexs) == 1:
-			results = img_process(indexs[0])
-		elif __name__ == "__main__":
-			with multiprocessing.Pool(processes=threadsToStart) as pool:
-				results = pool.map(img_process, indexs)
+	
+	if cmdInputs['-bk']['active']:
+		results = img_process(indicies[0])
+	else:
+		for indexs in indicies:
+			if len(indexs) < pCores:
+				threadsToStart = len(indexs)
+			else:
+				threadsToStart = pCores
+			if len(indexs) == 1:
+				results = img_process(indexs[0])
+			elif __name__ == "__main__":
+				with multiprocessing.Pool(processes=threadsToStart) as pool:
+					results = pool.map(img_process, indexs)
 
 
 if cmdInputs['-z']['active']:
