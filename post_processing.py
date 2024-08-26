@@ -7,26 +7,21 @@ import cv2 as cv
 from tqdm import tqdm
 
 cmdInputs = {
-    '-bk':{"name":"Single Image Run","types":['int'],"names":["break point"],"variable":[0],"active":False,"tooltips":"Skips to image listed, analyzes that image, and that stops program. Default 0th image"},
-    '-bt':{"name":"Enhanced Contrasting","types":[],"names":[],"variable":[],"active":False,"tooltips":"Preforms enhanced contrast enhancement using TopHat and BlackHat Imaging Modalities"},
-    '-cp':{"name":"Crop Image","types":['int','int','int','int'],"names":['height min','height max','width min','width max'],"variable":[0,-1,0,-1],"active":False,"tooltips":"Crops the image to the specified height and width. Default: Will not crop"},
-    '-ct':{"name":"Normal Contrasting","types":['float'],"names":['contrast factor'],"variable":[1.0],"active":False,"tooltips":"Contrasts the data according to new_px = factor * (old_px - mean) + 2055. Default: Factor = 1"},
-    '-d':{"name":"Downsample Image","types":['int'],"names":['scaling factor'],"variable":[4],"active":False,"tooltips":"Downscale data by whatever factor the user inputs. Default: 4"},
-    '-h':{"name":"Help","types":[],"names":[],"variable":[],"active":False,"tooltips":"Generates and prints help message"},
-    '-m':{"name":"Mean Locking","types":['float','float'],"names":['mean', 'std'],"variable":[2055.0,10000],"active":False,"tooltips":"Override mean to save time, you must input the mean and the standard deviation as integers of floating point values"},
-    '-n':{"name":"Normalize Background","types":['int'],"names":['radius'],"variable":[150],"active":False,"tooltips":"Normalizes the background of a run when the light was misaligned, user must input the radius for normalization convolution. Default: 150 pixels"},
-    '-o':{"name":"Override Output","types":['str'],"names":['path'],"variable":["./output/"],"active":False,"tooltips":"Changes output directory"},
-    '-p':{"name":"Processors Used","types":['int'],"names":['processors'],"variable":[4],"active":False,"tooltips":"Sets the maximum number of processing cores that program will used. Default is 4"},
-    '-sb':{"name":"Add Scalebar","types":[],"names":[],"variable":[],"active":False,"tooltips":"Adds scalebar to images outputed"},
-    '-sk':{"name":"Skip Alignment","types":[],"names":[],"variable":[],"active":False,"tooltips":"Skips aligning between runs"},
-    '-v':{"name":"Output video PNGs","types":[],"names":[],"variable":[],"active":False,"tooltips":"Makes a set of downscaled pngs to be compiled into a flythrough in /flythrough/"},
-    '-z':{"name":"Output Zarr","types":[],"names":[],"variable":[],"active":False,"tooltips":"Write output to zarr file rather than pngs"},
-    'input_folder': {"name": "Input Folder", "types": ['str'], "names": ['path'], "variable": [""], "active": False, "tooltips": "Path to input folder"},
-    'output_folder': {"name": "Output Folder", "types": ['str'], "names": ['path'], "variable": [""], "active": False, "tooltips": "Path to output folder"},
-    'run_array': {"name": "Run Array", "types": ['int'], "names": ['run numbers'], "variable": [1], "active": False, "tooltips": "Array of run numbers to process"},
-	'fname': {"name": "File Name", "types": ['str'], "names": ['file name'], "variable": [""], "active": False, "tooltips": "File name to process"}
-}
-
+	'-bk':{"name":"Single Image Run","types":['int'],"names":["break point"],"variable":[0],"active":False,"tooltips":"Skips to image listed, analyzes that image, and that stops program. Default 0th image"},
+	'-bt':{"name":"Enhanced Contrasting","types":[],"names":[],"variable":[],"active":False,"tooltips":"Preforms enhanced contrast enhancement using TopHat and BlackHat Imaging Modalities"},
+	'-cp':{"name":"Crop Image","types":['int','int','int','int'],"names":['height min','height max','width min','width max'],"variable":[0,-1,0,-1],"active":False,"tooltips":"Crops the image to the specified height and width. Default: Will not crop"},
+	'-ct':{"name":"Normal Contrasting","types":['float'],"names":['contrast factor'],"variable":[1.0],"active":False,"tooltips":"Contrasts the data according to new_px = factor * (old_px - mean) + 2055. Default: Factor = 1"},
+	'-d':{"name":"Downsample Image","types":['int'],"names":['scaling factor'],"variable":[4],"active":False,"tooltips":"Downscale data by whatever factor the user inputs. Default: 4"},
+	'-h':{"name":"Help","types":[],"names":[],"variable":[],"active":False,"tooltips":"Generates and prints help message"},
+	'-m':{"name":"Mean Locking","types":['float','float'],"names":['mean', 'std'],"variable":[2055.0,10000],"active":False,"tooltips":"Override mean to save time, you must input the mean and the standard deviation as integers of floating point values"},
+	'-n':{"name":"Normalize Background","types":['int'],"names":['radius'],"variable":[150],"active":False,"tooltips":"Normalizes the background of a run when the light was misaligned, user must input the radius for normalization convolution. Default: 150 pixels"},
+	'-o':{"name":"Override Output","types":['str'],"names":['path'],"variable":["./output/"],"active":False,"tooltips":"Changes output directory"},	
+	'-p':{"name":"Processors Used","types":['int'],"names":['processors'],"variable":[4],"active":False,"tooltips":"Sets the maximum number of processing cores that program will used. Default is 4"},
+	'-sb':{"name":"Add Scalebar","types":[],"names":[],"variable":[],"active":False,"tooltips":"Adds scalebar to images outputed"},
+	'-sk':{"name":"Skip Alignment","types":[],"names":[],"variable":[],"active":False,"tooltips":"Skips aligning between runs"},
+	'-v':{"name":"Output video PNGs","types":[],"names":[],"variable":[],"active":False,"tooltips":"Makes a set of downscaled pngs to be compiled into a flythrough in /flythrough/"},
+	'-z':{"name":"Output Zarr","types":[],"names":[],"variable":[],"active":False,"tooltips":"Write output to zarr file rather than pngs"}
+	}
 
 
 
@@ -44,7 +39,7 @@ def setup():
 
 
 def inputParser():
-	global cmdInputs, fname, base_path, runArray, runLength, outpath
+	global cmdInputs, fname, base_path, runArray, runLength
 	n = len(sys.argv)
 	
 	if n < 3 and '-h' not in sys.argv:
@@ -56,16 +51,10 @@ def inputParser():
 	
 	fname = sys.argv[1]
 	base_path = sys.argv[2]
-	cmdInputs['fname']['variable'][0] = fname
-	cmdInputs['input_folder']['variable'][0] = base_path
-	cmdInputs['output_folder']['variable'][0] = cmdInputs['-o']['variable'][0]
-
 	try:
 		runArray = ast.literal_eval(sys.argv[3])
-		cmdInputs['run_array']['variable'] = runArray
 	except:
 		runArray = [1]
-		cmdInputs['run_array']['variable'] = runArray
 		print(f"Run input fail, ensure that runs are entered as numbers separated by commas and in brackets, Example: [1,2,4]")
 	
 	runLength = len(runArray)
@@ -92,7 +81,6 @@ def inputParser():
 					print(f"Input {tag} has failed to read in input values, using defaults...")
 		elif tag == '-jms':
 			base_path = '/media/' + getpass.getuser() + '/' + sys.argv[2] + '/data/'
-			cmdInputs['input_folder']['variable'][0] = base_path
 
 
 
@@ -117,7 +105,7 @@ def generateHelpString(tag,entry):
 
 
 def variableEncode():
-	global crop_height, crop_width, mean, std, breakPoint, contrastFactor,downScale,bckNormRuns,bckNormPos,outpath, data, pCores, convolutionCircle, kernel, smconvolutionCircle
+	global crop_height, crop_width, mean, std, breakPoint, contrastFactor,downScale,bckNormRuns,bckNormPos,outpath, data, pCores, convolutionCircle, kernel
 	crop_height = [cmdInputs['-cp']['variable'][0],cmdInputs['-cp']['variable'][1]]
 	crop_width = [cmdInputs['-cp']['variable'][2],cmdInputs['-cp']['variable'][3]]
 	mean = cmdInputs['-m']['variable'][0]
@@ -126,12 +114,11 @@ def variableEncode():
 	contrastFactor = cmdInputs['-ct']['variable'][0]
 	downScale = cmdInputs['-d']['variable'][0]
 	pCores = cmdInputs['-p']['variable'][0]
-	print(cmdInputs['fname']['variable'][0])
-	base_path = cmdInputs['input_folder']['variable'][0]
+
 	if cmdInputs['-o']['active']:
 		outpath = cmdInputs['-o']['variable'][0]
 	else:
-		outpath = cmdInputs['output_folder']['variable'][0]
+		outpath = './output/'
 	
 	#Defines convolution circle for background normalization:
 	if cmdInputs['-n']['active']:
@@ -140,13 +127,6 @@ def variableEncode():
 		convolutionCircle = np.zeros((diameter,diameter))
 		cv.circle(convolutionCircle, center, cmdInputs['-n']['variable'][0], 1, 0)
 		convolutionCircle = convolutionCircle / np.sum(convolutionCircle)
-		
-		radius = 20
-		diameter = 2 * radius + 1
-		center = (radius,radius)
-		smconvolutionCircle = np.zeros((diameter,diameter))
-		cv.circle(smconvolutionCircle, center, radius, 1, 0)
-		smconvolutionCircle = smconvolutionCircle / np.sum(smconvolutionCircle)
 	
 	if cmdInputs['-bt']['active']:
 		elipse_size = 30
@@ -205,7 +185,7 @@ def attributes_saver():
 	with open(file_path, 'w') as file:
 		file.write(f'Filename: {fname}\n')
 		file.write(f'Base Path: {base_path}\n')
-		file.write(f'Run Analyzed: {cmdInputs["run_array"]["variable"]}\n')
+		file.write(f'Run Analyzed: {runArray}\n')
 
 		for key, value in cmdInputs.items():
 			file.write(f"{value['name']}: {value['active']}, {value['names']}, {value['variable']} \n")
@@ -452,6 +432,19 @@ def compileIndices(runNumber):
 					break
 	return indices
 
+def compileIndices_total(runNumber):
+	if cmdInputs['-bk']['active']:
+		indices = [breakPoint]
+	else:
+		t = data['allMeans'][str(runNumber)].shape[0]
+		indices = []
+		for i in range(t):
+			if data['allMeans'][str(runNumber)][i] > 0:
+				indices.append(i)
+			else:
+				break
+	return indices
+
 
 def img_process(index):
 	global zfull
@@ -468,6 +461,8 @@ def img_process(index):
 	if cmdInputs['-n']['active']:
 		meanMap = perform_background_normalization(image)
 		image = image - meanMap
+		m = np.mean(image)
+		image = image - m
 	else:
 		image = image - m
 	image = contrastFactor * image
@@ -504,7 +499,7 @@ def img_process(index):
 	if cmdInputs['-z']['active']:
 		zfull[counter] = image
 	else:
-		cv.imwrite(outpath + fname + f"/image_{c}.png",image/16)
+		cv.imwrite("./output/" + fname + f"/image_{c}.png",image/16)
 
 	if cmdInputs['-v']['active']:
 		scale = np.amax(image.shape) / base_video_resolution
@@ -516,26 +511,13 @@ def img_process(index):
 		if resolution[1] % 2 != 0:
 			resolution = (resolution[0], resolution[1] + 1)
 		video = cv.resize(image, resolution, interpolation= cv.INTER_LINEAR)
-		cv.imwrite(outpath + fname + f"/flythrough/image_{c}.png",video/16)
+		cv.imwrite("./output/" + fname + f"/flythrough/image_{c}.png",video/16)
+	
 	return True
 
 
-def perform_background_normalization(image):
-#	h,w = image.shape
-#	nH = h + 2 * cmdInputs['-n']['variable'][0]
-#	nW = w + 2 * cmdInputs['-n']['variable'][0]
-#	maskImage = np.zeros((nH,nW))
-#	maskImage[cmdInputs['-n']['variable'][0]:cmdInputs['-n']['variable'][0]+h,cmdInputs['-n']['variable'][0]:cmdInputs['-n']['variable'][0]+w] = image
-#	convolution = cv.filter2D(src=maskImage, ddepth=-1, kernel=convolutionCircle)
-#	convolution = convolution[cmdInputs['-n']['variable'][0]:cmdInputs['-n']['variable'][0]+h,cmdInputs['-n']['variable'][0]:cmdInputs['-n']['variable'][0]+w]
+def perform_background_normalization(image,kernelRadius = None):
 	convolution = cv.filter2D(src=image, ddepth=-1, kernel=convolutionCircle)
-	
-#	fineDetail = cv.filter2D(src=image, ddepth=-1, kernel=smconvolutionCircle)
-#	fineDetail = image - fineDetail
-#	fineDetail = 2 * fineDetail / np.amax(np.abs(fineDetail))
-#	convolution = image - convolution
-#	convolution = convolution * fineDetail + convolution
-	
 	return convolution
 
 
@@ -550,14 +532,26 @@ for zarrNumber in tqdm(runArray):
 #	print(f"Now procressing run # {zarrNumber}, with {data['offset'][runNumber]} valid images out of a total of {data['allMeans'][runNumber].shape[0]} images")
 	path = base_path + fname + '/MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
 	rawImage = ms.get_just_images_from_zarr(path)
-	indicies = compileIndices(zarrNumber)
 	
-	if cmdInputs['-bk']['active']:
-		results = img_process(indicies[0])
-	else:
-		for index in indicies:
-			for idx in index:
-				results = img_process(idx)
+	indicies = compileIndices_total(zarrNumber)
+	for  index in indicies:
+		img_process(index)
+	
+#	indicies = compileIndices(zarrNumber)
+	
+#	if cmdInputs['-bk']['active']:
+#		results = img_process(indicies[0])
+#	else:
+#		for indexs in indicies:
+#			if len(indexs) < pCores:
+#				threadsToStart = len(indexs)
+#			else:
+#				threadsToStart = pCores
+#			if len(indexs) == 1:
+#				results = img_process(indexs[0])
+#			elif __name__ == "__main__":
+#				with multiprocessing.Pool(processes=threadsToStart) as pool:
+#					results = pool.map(img_process, indexs)
 
 
 if cmdInputs['-z']['active']:
