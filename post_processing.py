@@ -341,21 +341,39 @@ def compute_means_for_all_arrays_():
 
 
 def load_image_and_get_mean_as_array(zpath,means,runNumber):
-	global x, y
+	global x, y, data
+	
+	if 'log' not in data:
+		data['log'] = {}
+	data['log'][runNumber] = {}
+	
 	img, attrs = ms.get_image_from_zarr(zpath)
 	x = img.shape[1]
 	y = img.shape[2]
 #	print(zpath,img.shape[0])
 	
 	temp_means = np.zeros(img.shape[0])
+	pImage = np.zeros(img[0].shape)
 	for i in range(img.shape[0]):
 		if data['shift'][str(runNumber)][0] != 0 or data['shift'][str(runNumber)][1] != 0:
 			image = ms.shiftImage(img[i],data['shift'][str(runNumber)])
 		else:
 			image = img[i]
+		
 		temp_means[i] = np.mean(image[crop_height[0]:crop_height[1],crop_width[0]:crop_width[1]])
-		if temp_means[i] == 0:
+		
+		difference = image[crop_height[0]:crop_height[1],crop_width[0]:crop_width[1]] - pImage[crop_height[0]:crop_height[1],crop_width[0]:crop_width[1]]
+		difference = np.abs(difference)
+		difference = np.sum(difference)
+		if temp_means[i] == 0 or difference <= 1:
+			data['log'][runNumber]['terminated'] = i
+			if temp_means[i] == 0:
+				data['log'][runNumber]['reason'] = "Blank Image"
+			else:
+				data['log'][runNumber]['reason'] = "Repeat Image"
 			break
+		else:
+			pImage = img[i]
 		
 	return temp_means
 
@@ -499,7 +517,7 @@ def img_process(index):
 	if cmdInputs['-z']['active']:
 		zfull[counter] = image
 	else:
-		cv.imwrite("./output/" + fname + f"/image_{c}.png",image/16)
+		cv.imwrite(outpath + fname + f"/image_{c}.png",image/16)
 
 	if cmdInputs['-v']['active']:
 		scale = np.amax(image.shape) / base_video_resolution
@@ -511,7 +529,7 @@ def img_process(index):
 		if resolution[1] % 2 != 0:
 			resolution = (resolution[0], resolution[1] + 1)
 		video = cv.resize(image, resolution, interpolation= cv.INTER_LINEAR)
-		cv.imwrite("./output/" + fname + f"/flythrough/image_{c}.png",video/16)
+		cv.imwrite(outpath + fname + f"/flythrough/image_{c}.png",video/16)
 	
 	return True
 
@@ -527,14 +545,15 @@ if cmdInputs['-z']['active']:
 	zimg, zfull = create_zarr_file()
 
 
-for zarrNumber in tqdm(runArray):
+#for zarrNumber in tqdm(runArray):
+for zarrNumber in runArray:
 	runNumber = str(zarrNumber)
 #	print(f"Now procressing run # {zarrNumber}, with {data['offset'][runNumber]} valid images out of a total of {data['allMeans'][runNumber].shape[0]} images")
 	path = base_path + fname + '/MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
 	rawImage = ms.get_just_images_from_zarr(path)
 	
 	indicies = compileIndices_total(zarrNumber)
-	for  index in indicies:
+	for  index in tqdm(indicies):
 		img_process(index)
 	
 #	indicies = compileIndices(zarrNumber)
