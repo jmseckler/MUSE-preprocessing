@@ -19,6 +19,7 @@ cmdInputs = {
 	'-p':{"name":"Processors Used","types":['int'],"names":['processors'],"variable":[4],"active":False,"tooltips":"Sets the maximum number of processing cores that program will used. Default is 4"},
 	'-sb':{"name":"Add Scalebar","types":[],"names":[],"variable":[],"active":False,"tooltips":"Adds scalebar to images outputed"},
 	'-sk':{"name":"Skip Alignment","types":[],"names":[],"variable":[],"active":False,"tooltips":"Skips aligning between runs"},
+	'-su':{"name":"Data Survey","types":[],"names":[],"variable":[],"active":False,"tooltips":"Perform Data Survey"},
 	'-v':{"name":"Output video PNGs","types":[],"names":[],"variable":[],"active":False,"tooltips":"Makes a set of downscaled pngs to be compiled into a flythrough in /flythrough/"},
 	'-z':{"name":"Output Zarr","types":[],"names":[],"variable":[],"active":False,"tooltips":"Write output to zarr file rather than pngs"}
 	}
@@ -179,6 +180,9 @@ def attributes_saver():
 	
 	if cmdInputs['-v']['active']:
 		ms.replace_directory(outpath + fname + "/flythrough/")
+
+	if cmdInputs['-su']['active']:
+		ms.replace_directory(outpath + fname + "/survey/")
 
 	
 	file_path = outpath + fname + "/configuration.txt"
@@ -345,35 +349,46 @@ def load_image_and_get_mean_as_array(zpath,means,runNumber):
 	
 	if 'log' not in data:
 		data['log'] = {}
-	data['log'][runNumber] = {}
 	
 	img, attrs = ms.get_image_from_zarr(zpath)
 	x = img.shape[1]
 	y = img.shape[2]
 #	print(zpath,img.shape[0])
+	data['log'][runNumber] = {'reason':'Completed','total':img.shape[0]}
 	
 	temp_means = np.zeros(img.shape[0])
 	pImage = np.zeros(img[0].shape)
+	pImage = pImage[crop_height[0]:crop_height[1],crop_width[0]:crop_width[1]]
+	
 	for i in range(img.shape[0]):
 		if data['shift'][str(runNumber)][0] != 0 or data['shift'][str(runNumber)][1] != 0:
 			image = ms.shiftImage(img[i],data['shift'][str(runNumber)])
 		else:
 			image = img[i]
 		
-		temp_means[i] = np.mean(image[crop_height[0]:crop_height[1],crop_width[0]:crop_width[1]])
+		image = image[crop_height[0]:crop_height[1],crop_width[0]:crop_width[1]]
+		image = np.array(image)
+		temp_means[i] = np.mean(image)
 		
-		difference = image[crop_height[0]:crop_height[1],crop_width[0]:crop_width[1]] - pImage[crop_height[0]:crop_height[1],crop_width[0]:crop_width[1]]
+		difference = image - pImage
 		difference = np.abs(difference)
 		difference = np.sum(difference)
-		if temp_means[i] == 0 or difference <= 1:
-			data['log'][runNumber]['terminated'] = i
+		
+		laplacian = cv.Laplacian(image, cv.CV_64F)
+		variance = laplacian.var()
+		#put in a catch when difference is high and variance is low which says flake is on the block
+		data['log'][runNumber]['length'] = i
+		if temp_means[i] == 0 or difference <= 1 or variance < 100:
 			if temp_means[i] == 0:
 				data['log'][runNumber]['reason'] = "Blank Image"
+			elif variance < 100:
+				data['log'][runNumber]['reason'] = "Blurry Image"
 			else:
 				data['log'][runNumber]['reason'] = "Repeat Image"
 			break
 		else:
-			pImage = img[i]
+			pImage = img[i][crop_height[0]:crop_height[1],crop_width[0]:crop_width[1]]
+			pImage = np.array(pImage)
 		
 	return temp_means
 
@@ -516,6 +531,8 @@ def img_process(index):
 	
 	if cmdInputs['-z']['active']:
 		zfull[counter] = image
+	elif cmdInputs['-su']['active']:
+		cv.imwrite(outpath + fname + f"/survey/image_{c}.png",image/16)
 	else:
 		cv.imwrite(outpath + fname + f"/image_{c}.png",image/16)
 
@@ -534,12 +551,46 @@ def img_process(index):
 	return True
 
 
-def perform_background_normalization(image,kernelRadius = None):
+def perform_background_normalization(image):
 	convolution = cv.filter2D(src=image, ddepth=-1, kernel=convolutionCircle)
 	return convolution
 
 
+def perform_data_survey():
+	save_survey_log_file()
+	survey_images()
+	data_saver_to_json()
+	quit()
+
+
+def save_survey_log_file():
+	path = outpath + fname + "/survey/log.csv"
+	logFILE = open(path,'w')
+	logFILE.write('Run,Length,Total Length,Reason For Termination\n')
+	
+	for runNumber in data['log']:
+		logFILE.write(str(runNumber) + ',')
+		logFILE.write(str(data['log'][runNumber]['length']) + ',')
+		logFILE.write(str(data['log'][runNumber]['total']) + ',')
+		logFILE.write(str(data['log'][runNumber]['reason']) + '\n')
+	logFILE.close()
+		
+def survey_images():
+	global runNumber, rawImage
+	indices = []
+	for z in data['log']:
+		runNumber = str(z)
+		path = base_path + fname + '/MUSE_stitched_acq_'  + runNumber + '.zarr'
+		rawImage = ms.get_just_images_from_zarr(path)
+		index = data['log'][runNumber]['length'] // 2
+		img_process(index)
+	return indices
+
+
 setup()
+
+if cmdInputs['-su']['active']:
+	perform_data_survey()
 
 if cmdInputs['-z']['active']:
 	zimg, zfull = create_zarr_file()
