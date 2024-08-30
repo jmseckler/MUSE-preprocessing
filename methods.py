@@ -11,9 +11,6 @@ import numpy as np
 import dask.array as da
 from ome_zarr.io import parse_url
 from ome_zarr.writer import write_multiscale
-import skimage
-
-import dask.array as da
 
 
 #input_path = '/media/revadata/data/REVA/'
@@ -83,6 +80,10 @@ def get_image_from_zarr_old(path):
 		print("Filename, "+path+" is corrupted or incorrect and did not produce a file from zarr file...")
 		return None, None
 
+
+def make_directory(directory):
+	if not os.path.isdir(directory):
+		os.makedirs(directory)
 
 def replace_directory(directory):
 	if os.path.isdir(directory):
@@ -648,4 +649,23 @@ def normalize_image_by_column(img,pos):
 	img = img + total_mean
 	img = np.clip(img,0,4095)
 	return img
+
+
+def findAllZarrs(path):
+	flist = glob.glob(path + "*.zarr")
 	
+	allRuns = []
+	for fname in flist:
+		run = fname.split('.')[0]
+		run = run.split('_')[-1]
+		allRuns.append(run)
+	return allRuns
+
+
+def image_histogram(image, bitdepth = 4096):
+	image_array = np.array(image)
+	flattened_array = image_array.flatten()
+	histogram, bin_edges = np.histogram(flattened_array, bins=bitdepth, range=(0, bitdepth))
+	
+	return histogram
+
