@@ -246,6 +246,8 @@ def calculate_global_adjacent_image_difference_for_all_images():
 			diff = np.power(diff,2)
 			diff = np.abs(diff)
 			diff = np.sum(diff)
+			n = image.shape[0] * image.shape[1]
+			diff = diff / n
 			
 			data['difference'][zarrNumber][i] = np.sqrt(diff)
 			if data['means'][zarrNumber][i] == 0:
@@ -264,7 +266,7 @@ def calculate_histogram_for_all_data():
 		data['histogram'][zarrNumber] = []
 		
 		for i in range(img.shape[0]):
-			data['histogram'][zarrNumber].append(image_histogram(img[i]))
+			data['histogram'][zarrNumber].append(ms.image_histogram(img[i]))
 			if data['means'][zarrNumber][i] == 0:
 				break
 		data['histogram'][zarrNumber] = np.array(data['histogram'][zarrNumber])
@@ -272,12 +274,7 @@ def calculate_histogram_for_all_data():
 	data = data_saver_to_json(data)
 	return True
 
-def image_histogram(image):
-	image_array = np.array(image)
-	flattened_array = image_array.flatten()
-	histogram, bin_edges = np.histogram(flattened_array, bins=4096, range=(0, 4096))
-	
-	return histogram
+
 
 def rewrite_data_survey_file_and_write_survey_images():
 	print('Writing Log File and saving a selection of images from all zarr acquisitions')
@@ -293,7 +290,6 @@ def rewrite_data_survey_file_and_write_survey_images():
 	for tag in dataQualtyCheck:
 		logFILE.write(tag + ',,')
 	logFILE.write('\n')
-	
 	for zarrNumber in allArray:
 		logFILE.write(zarrNumber + ',')
 		logFILE.write(str(int(data['length'][zarrNumber])) + ',')
@@ -307,9 +303,15 @@ def rewrite_data_survey_file_and_write_survey_images():
 	
 def prepareDataForSurvey(tag,zarrNumber):
 	pData = np.mean(data[tag][zarrNumber][data[tag][zarrNumber] != 0])
-	pData = int(pData)
+	try:
+		pData = int(pData)
+	except ValueError:
+		pData = 0
 	sData = np.std(data[tag][zarrNumber][data[tag][zarrNumber] != 0])
-	sData = int(sData)
+	try:
+		sData = int(sData)
+	except ValueError:
+		sData = 0
 	
 	STRING_TO_RETURN = str(pData) + ',' + str(sData)
 	return STRING_TO_RETURN
@@ -339,4 +341,5 @@ def saveSurveyImage(zarrNumber):
 
 
 setup()
+
 print("Completed")
