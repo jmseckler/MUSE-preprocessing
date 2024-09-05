@@ -661,6 +661,17 @@ def findAllZarrs(path):
 		allRuns.append(run)
 	return allRuns
 
+def findAllDir(path):
+	flist = glob.glob(path + "*")
+	
+	allRuns = []
+	for fname in flist:
+		if os.path.isdir(fname):
+			run = fname.split('/')[-1]
+			allRuns.append(run)
+	return allRuns
+
+
 
 def image_histogram(image, bitdepth = 4096):
 	image_array = np.array(image)
