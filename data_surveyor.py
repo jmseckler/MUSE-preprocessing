@@ -16,6 +16,7 @@ cmdInputs = {
 	'-su':{"name":"Data Survey","types":[],"names":[],"variable":[],"active":False,"tooltips":"Perform Data Survey"},
 	'-r':{"name":"Recursive","types":[],"names":[],"variable":[],"active":False,"tooltips":"Finds all folders in the "},
 	'-f':{"name":"Flythrough","types":[],"names":[],"variable":[],"active":False,"tooltips":"Creates a video flythrough (Linux Only)"},
+	'-i':{"name":"Individual Curves","types":[],"names":[],"variable":[],"active":False,"tooltips":"Saves the invidual curves for means, variance, and difference"},
 	}
 
 #Define the directory structure which the program will use. Version 2.1 will stop wiping all previous data to go with efficency
@@ -65,18 +66,18 @@ def setup():
 		for f in flist:
 			print(f)
 			fname = f
-			variableEncode()
-			check_output_directory_structure_and_load_all_metadata()
-			validate_data_structure_and_metadata()			
-			if cmdInputs['-f']['active']:
-				create_flythrough_video_for_data_visualization()
+			process_images()
 	else:
-		variableEncode()
-		check_output_directory_structure_and_load_all_metadata()
-		validate_data_structure_and_metadata()
-		if cmdInputs['-f']['active']:
-			create_flythrough_video_for_data_visualization()
-
+		process_images()
+def process_images():
+	variableEncode()
+	check_output_directory_structure_and_load_all_metadata()
+	validate_data_structure_and_metadata()
+	if cmdInputs['-f']['active']:
+		create_flythrough_video_for_data_visualization()
+	if cmdInputs['-i']['active']:
+		save_inidividual_curves()
+	
 
 def inputParser():
 	global cmdInputs, fname, base_path
@@ -272,9 +273,25 @@ def calculate_global_focus_for_all_images():
 		zpath = inPath + 'MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
 		img, attrs = ms.get_image_from_zarr(zpath)
 		data['focus'][zarrNumber] = np.zeros(img.shape[0])
+		
+		width, height = img[0].shape
+		mid_w = width // 2
+		mid_h = height // 2
+		start_w = mid_w - 500
+		end_w = mid_w + 500
+		start_h = mid_h - 500
+		end_h = mid_h + 500
+		
 		for i in range(img.shape[0]):
-			image = np.array(img[i])
-			variance = cv.Laplacian(image, cv.CV_64F)
+			image = np.array(img[i][start_w:end_w,start_h:end_h])
+			
+			vimage = image - np.mean(image)
+			vimage = 3.0 * vimage
+			vimage = vimage + 2027
+			vimage = np.clip(vimage,0,4095)
+	
+			blurred_image = cv.GaussianBlur(vimage, (15,15), 0)
+			variance = cv.Laplacian(blurred_image, cv.CV_64F)
 			data['focus'][zarrNumber][i] = variance.var()
 			if data['means'][zarrNumber][i] == 0:
 				break
@@ -290,11 +307,10 @@ def calculate_global_adjacent_image_difference_for_all_images():
 		zpath = inPath + 'MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
 		img, attrs = ms.get_image_from_zarr(zpath)
 		data['difference'][zarrNumber] = np.zeros(img.shape[0])
-		pImage = np.array(img[-1])
 		
 		for i in range(img.shape[0]):
+			pImage = np.array(img[i-1])
 			image = np.array(img[i])
-			
 			diff = image - pImage
 			diff = np.power(diff,2)
 			diff = np.abs(diff)
@@ -526,7 +542,38 @@ def saveSurveyImage(zarrNumber):
 	cv.imwrite(surveyPath + f"example_{zarrNumber}.png",image/16)
 	
 
+def save_inidividual_curves():
+	global data
+	write_curve_file('difference')
+	write_curve_file('means')
+	write_curve_file('focus')
+	
 
+def write_curve_file(name):
+	curvesFile = open(metaPath + name + ".csv", 'w')
+	length = 0
+	
+	
+	for zarrNumber in allArray:
+		if data[name][zarrNumber].shape[0] > length:
+			length = data[name][zarrNumber].shape[0]
+		curvesFile.write(f'Acq#{zarrNumber},')
+	curvesFile.write('\n')
+	
+	
+	for i in range(length):
+		for zarrNumber in allArray:
+			if i < data[name][zarrNumber].shape[0]:
+				datum = data[name][zarrNumber][i]
+				curvesFile.write(f"{datum},")
+			else:
+				curvesFile.write(f'0,')
+		curvesFile.write('\n')
+	curvesFile.close()
+	
+	
+	
+	
 setup()
 
 print("Completed")
