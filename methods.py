@@ -1,11 +1,12 @@
 import warnings
 warnings.filterwarnings("ignore")
 
-import zarr, glob, os, shutil, math, json
+import zarr, glob, os, shutil, math, json, re
 import scipy as sp
 import skimage as sk
 import cv2 as cv
 import numpy as np
+import tifffile as tiffio
 
 #Ian Specific Library
 import dask.array as da
@@ -22,12 +23,15 @@ input_path =  '/media/james/T9/data/'
 output_path = '/media/james/T9/process/'
 
 zarr_attr_path = "./.zattrs"
-
+logFileName = 'muse_application.log'
 
 threshhold = 128
 img_size = 2500
 img_step = 200
 sample = 50
+
+bytes_per_image = 24019288
+
 
 def find_unprocessed_data_folders(path=""):
 	if path == "":
@@ -60,25 +64,21 @@ def zarr_image_lister(path,inpath = ""):
 
 
 def get_image_from_zarr(path):
-#	zfile = zarr.open(path)
 	try:
 		zimg = da.from_zarr(path, component="muse/stitched/")
 		return zimg, None
 	except:
-		print("Filename, "+path+" is corrupted or incorrect and did not produce a file from zarr file...")
-		quit()
+		if save_single_panel_tiff_as_zarr_file(zpath):
+			zimg = da.from_zarr(path, component="muse/stitched/")
+			return zimg, None
+		else:
+			print("Filename, "+path+" is corrupted or incorrect and did not produce a file from zarr file...")
+			return None, None
+		
 
 def get_just_images_from_zarr(path):
 	img, zattr = get_image_from_zarr(path)
 	return img
-
-def get_image_from_zarr_old(path):
-	zfile = zarr.open(path)
-	try:
-		return zfile["/muse/stitched/"], zfile.attrs
-	except KeyError:
-		print("Filename, "+path+" is corrupted or incorrect and did not produce a file from zarr file...")
-		return None, None
 
 
 def make_directory(directory):
@@ -679,4 +679,330 @@ def image_histogram(image, bitdepth = 4096):
 	histogram, bin_edges = np.histogram(flattened_array, bins=bitdepth, range=(0, bitdepth))
 	
 	return histogram
+
+def logFileLoader(zarrPath):
+	path = zarrPath + '/' + logFileName
+	
+	
+	panels = {} #Form of Run#: [hPanels, vPanels]
+	XYPositions = {} #Form of Run#:[[X1,Y1],[X2,Y2],...]
+	ZPositions = {} #Form of Run#:[Z1,Z2,...]
+	voxelSize = {} #Form of Run#: (x,y,z) Voxels
+	imageSize = {} #form of Run#:[rows,col]
+	exposureTime = {} #form of Run#:Time
+	runLength = {} #Form of Run#:[Run Length, Final Slice Made, Images Expected, Images Taken]
+	trimLength = {} #Form of Trim#:[Run Length,Date Started, Dated Ended]
+	dates = {} #Form of Run#:[Start Date/Time, End Date/Time]
+	history = [] #Form of ('run',Run#) or ('trim',Trim#)
+	
+	#Opens the Raw text file form 
+	rawFile = open(path, 'r')
+	#regular expressions for capturing information from various row types
+	cycletype = re.compile(r"(?P<type>[A-Z]+) CYCLE")
+	cyclenum = re.compile(r"CYCLE (?P<cycle>\d+)")
+	posre = re.compile(r"\d+\.\d+")
+	rowcol = re.compile(r"\(rows, cols\)\: (?P<rows>\d+) (?P<cols>\d+)")
+	skipslices = re.compile(r"Skipping imaging every (?P<slices>\d+)")
+	imgexpected = re.compile(r"This will generate (?P<imgs>\d+)")
+	acqstopped = re.compile(r"Acquisition cycle stopped after (?P<slices>\d+)")
+	dateandtime = re.compile(r"\d\d/\d\d/\d\d\d\d \d\d:\d\d:\d\d [AP]M")
+	trimstop = re.compile(r"Stopped trimming after (?P<slices>\d+)")
+	trimcomp = re.compile(r"Completed trimming for (?P<slices>\d+)")
+	exposure = re.compile(r"Set eposure time to (?P<time>\d+)")
+	#initialize variables used to track data about runs and trims
+	expectedImgs = None
+	skipImg = None
+	trimNum = 0
+	currentRun = None
+	sizeXY = None
+	runstart = None
+	trimstart = None
+	runslices = None
+	finalSlice = None
+	imagesTaken = None
+	#Reads in the file and rips the while thing into a list, ready for parsing
+	for row in rawFile:
+		if cycletype.search(row):
+			t = dateandtime.search(row)
+			m = cycletype.search(row)
+			m2 = cyclenum.search(row)
+			if m['type'] == 'IMAGING':
+				#if current run is not None, a new run is starting but the previous run has not yet ended so we end it
+				#when this happens we are not able to determine how many images were actually taken
+				if currentRun != None:
+					runLength[currentRun] = [runslices, runslices, expectedImgs, imagesTaken]
+					dates[currentRun] = [runstart, t[0]]
+					runslices = None
+					finalSlice = None
+					expectedImgs = None
+					imagesTaken = None
+					runstart = None
+					currentRun = None
+				currentRun = int(m2['cycle'])
+				runstart = t[0]
+				currentRun = f"{runstart} run {currentRun}"
+				history.append(('run', currentRun))
+			else:
+				trimNum += 1
+				trimstart = t[0]
+				history.append(('trim', trimNum))
+		elif 'XY positions are' in row:
+			if currentRun == None:
+				print("An error has ocurred, looking for XY positions but run is None")
+			xs = {}
+			ys = {}
+			xys = []
+			m = posre.findall(row)
+			hpanels = 0
+			vpanels = 0
+			for i in range(0, len(m), 2):
+				x = float(m[i])
+				y = float(m[i+1])
+				if x in xs:
+					xs[x] += 1
+				else:
+					xs[x] = 1
+				if y in ys:
+					ys[y] += 1
+				else:
+					ys[y] = 1
+				xys.append([x,y])
+			XYPositions[currentRun] = xys
+			hpanels = max(ys.values())
+			vpanels = max(xs.values())
+			panels[currentRun] = [hpanels, vpanels]
+		elif 'Z positions are' in  row:
+			if currentRun == None:
+				print("An error has ocurred, looking for Z positions but run is None")
+			ZPositions[currentRun] = [float(x) for x in posre.findall(row)]
+		elif 'Pixel size' in row:
+			if currentRun == None:
+				print("An error has ocurred, looking for XY pixel size but run is None")
+			sizeXY = float(posre.findall(row)[0])
+			m = rowcol.search(row)
+			totalRows = int(int(m['rows']) * (0.8 * panels[currentRun][0] - 0.2 ))
+			totalCols = int(int(m['cols']) * (0.8 * panels[currentRun][1] - 0.2 ))
+			imageSize[currentRun] = [totalRows, totalCols]
+		elif "Skipping imaging every" in row:
+			if currentRun == None:
+				print("An error has ocurred, looking for skipped slices but run is None")
+			if sizeXY == None:
+				print("An error has ocurred, looking for skipped slices but xy pixel size is None")
+			m = skipslices.search(row)
+			skipImg = int(m['slices'])
+			sizeZ = 3 * (skipImg + 1)
+			voxelSize[currentRun] = (sizeXY, sizeXY, sizeZ)
+		elif "This will generate" in row:
+			m = imgexpected.search(row)
+			expectedImgs = int(m['imgs'])
+			if skipImg == None:
+				print("An error has ocurred, looking for generated images but skipped slices is None")
+			runslices = expectedImgs * (skipImg + 1)
+			finalSlice = runslices
+		elif "Acquisition cycle stopped after" in row:
+			m = acqstopped.search(row)
+			t = dateandtime.search(row)
+			finalSlice = int(m['slices'])
+			imagesTaken = int(runslices/(skipImg + 1))
+			if currentRun == None:
+				print("An error has ocurred, looking for acquisition stopped but current run is None")
+			dates[currentRun] = [runstart, t[0]]
+			runLength[currentRun] = [runslices, finalSlice, expectedImgs, imagesTaken]
+			runslices = None
+			finalSlice = None
+			expectedImgs = None
+			imagesTaken = None
+			runstart = None
+			currentRun = None
+		elif "Completed acquisition cycle" in row:
+			t = dateandtime.search(row)
+			if currentRun == None:
+				print("An error has ocurred, looking for acquisition completed but current run is None")
+			dates[currentRun] = [runstart, t[0]]
+			imagesTaken = int(runslices/(skipImg + 1))
+			runLength[currentRun] = [runslices, runslices, expectedImgs, imagesTaken]
+			runslices = None
+			finalSlice = None
+			expectedImgs = None
+			imagesTaken = None
+			runstart = None
+			currentRun = None
+		elif "Stopped trimming after" in row:
+			m = trimstop.search(row)
+			t = dateandtime.search(row)
+			if trimstart == None:
+				print("An error has ocurred, looking for trim length but trim start is None")
+			trimLength[trimNum] = [int(m['slices']), trimstart, t[0]]
+			trimstart = None
+		elif "Completed trimming for" in row:
+			m = trimcomp.search(row)
+			t = dateandtime.search(row)
+			if trimstart == None:
+				print("An error has ocurred, looking for trim length but trim start is None")
+			trimLength[trimNum] = [int(m['slices']), trimstart, t[0]]
+			trimstart = None
+		elif "Set eposure time" in row:
+			m = exposure.search(row)
+			if currentRun == None:
+				print("An error has ocurred, looking for acquisition completed but current run is None")
+			exposureTime[currentRun] = int(m['time'])
+		else:
+			continue
+	
+	masterFile = {'runs':{},'trims':{},'names':{},'panelNumbers':{},'history':[],'runList':[]}
+	
+	#Compiles all data for the Runs
+	for run in panels:
+		masterFile['runList'].append(run)
+		masterFile['names'][run] = run.split(' ')[-1]
+		masterFile['panelNumbers'][run] = panels[run][0] * panels[run][1]
+		
+		masterFile['runs'][run] = {}
+		masterFile['runs'][run]['panels'] = panels[run]
+		
+		try:
+			masterFile['runs'][run]['voxel'] = voxelSize[run]
+		except KeyError:
+			print(f"KeyError in run {run} for voxelSize")
+
+		try:
+			masterFile['runs'][run]['size'] = imageSize[run]
+		except KeyError:
+			print(f"KeyError in run {run} for ImageSize")
+
+
+		try:
+			masterFile['runs'][run]['exposure'] = exposureTime[run]
+		except KeyError:
+			print(f"KeyError in run {run} for Exposure Time")
+
+		try:
+			masterFile['runs'][run]['length'] = {'total cuts':runLength[run][1],'expected cuts':runLength[run][0],'total images':runLength[run][3],'expected images':runLength[run][2]}
+		except KeyError:
+			print(f"KeyError in run {run} for Run Length")
+
+
+		try:
+			masterFile['runs'][run]['start'] = dates[run][0]
+		except KeyError:
+			print(f"KeyError in run {run} for Start Time")
+
+		try:
+			masterFile['runs'][run]['end'] = dates[run][1]
+		except KeyError:
+			print(f"KeyError in run {run} for End Time")
+		
+		try:
+			masterFile['runs'][run]['XY_positions'] = XYPositions[run]
+		except KeyError:
+			print(f"KeyError in run {run} for XYPositions")
+		
+		try:
+			masterFile['runs'][run]['Z_positions'] = ZPositions[run]
+		except KeyError:
+			print(f"KeyError in run {run} for ZPositions")
+	
+	#Compiles all data for the Trimming Cycles
+	for run in trimLength:
+		masterFile['trims'][run] = {}
+		masterFile['trims'][run]['length'] = trimLength[run][0]
+		masterFile['trims'][run]['start'] = trimLength[run][1]
+		masterFile['trims'][run]['end'] = trimLength[run][2]
+	
+	masterFile['history'] = history
+	return masterFile
+
+def save_single_panel_tiff_as_zarr_file(zpath):
+#	zpath = inPath + 'MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
+	zarrNumber = zpath.split('_')[-1]
+	zarrNumber = zarrNumber[:-5]
+	listPath = zpath.split('/')
+	listPath.pop()
+	
+	inPath = ''
+	for l in listPath:
+		inPath += l + '/'
+	
+	tiffPath = inPath + 'MUSE_acq_' + zarrNumber + '/'
+	tlist = glob.glob(tiffPath + '*.tif')
+	tlist = sorted(tlist)
+	
+	if len(tlist) == 0:
+		return False 
+	
+	remove_directory(zpath)
+
+	store = zarr.DirectoryStore(zpath, dimension_separator='/')
+	root = zarr.group(store=store, overwrite=True)
+	data = root.create_group('muse')
+	
+	z = 0	
+	for t in tlist:
+		stack_size = os.path.getsize(t)
+		z += np.floor(stack_size/bytes_per_image) + 1
+	image = tiffio.imread(t, key = 0)
+	
+	x, y = image.shape
+	
+	zshape, zchunk = shape_definer(z,x,y,1)
+	full = data.zeros('stitched', shape=zshape, chunks=zchunk, dtype="i2" )
+	
+	zcount = 0
+	for t in tlist:
+		stack_size = os.path.getsize(t)
+		c = np.floor(stack_size/bytes_per_image) + 1
+		for i in range(c):
+			image = tiffio.imread(t, key = i)
+			full[zcount] = image
+			zcount += 1
+	zarr.save(zpath, data)
+	return True
+	
+	
+		
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

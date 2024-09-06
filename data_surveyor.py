@@ -7,7 +7,9 @@ from datetime import datetime
 import cv2 as cv
 import numpy as np
 import sys, os, getpass, ast, json, glob
+from skimage.metrics import structural_similarity as ssim
 import matplotlib.pyplot as plt
+
 
 
 #Define the commands input variable which is used with Input Parser to interpret all flags the user could put in
@@ -27,6 +29,8 @@ tmpFolder = dataFolder + 'tmp/'
 surveyFolder = metaFolder + 'survey/'
 
 dataConversionTags = ['means','focus','difference','histogram','shift']
+
+
 
 fly_font = cv.FONT_HERSHEY_SIMPLEX
 fly_color = (255,255,255)
@@ -208,7 +212,7 @@ def convertDataTagTolist(d):
 	
 
 def validate_data_structure_and_metadata():
-	global allArray
+	global allArray, data
 	allArray = ms.findAllZarrs(inPath)
 	validatate_zarr_path_and_determine_if_runs_are_valid()
 	passer = False
@@ -222,6 +226,9 @@ def validate_data_structure_and_metadata():
 		passer = calculate_histogram_for_all_data()
 	if 'height' not in data or 'width' not in data:
 		passer = determine_pixel_dimensions_for_all_images()
+	if 'log' not in data:
+		data['log'] = ms.logFileLoader(inPath)
+		data = data_saver_to_json(data)
 	if passer or cmdInputs['-su']['active']:
 		rewrite_data_survey_file_and_write_survey_images()
 
@@ -251,7 +258,8 @@ def calculate_global_means_for_all_images_and_save_attributes():
 	for zarrNumber in tqdm(allArray):
 		zpath = inPath + 'MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
 		img, attrs = ms.get_image_from_zarr(zpath)
-		data['attr'][zarrNumber] = attrs
+		if img is None:
+			continue
 		data['means'][zarrNumber] = np.zeros(img.shape[0])
 		data['width'][zarrNumber] = img.shape[1]
 		data['height'][zarrNumber] = img.shape[2]
@@ -272,6 +280,8 @@ def calculate_global_focus_for_all_images():
 	for zarrNumber in tqdm(allArray):
 		zpath = inPath + 'MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
 		img, attrs = ms.get_image_from_zarr(zpath)
+		if img is None:
+			continue		
 		data['focus'][zarrNumber] = np.zeros(img.shape[0])
 		
 		width, height = img[0].shape
@@ -306,19 +316,25 @@ def calculate_global_adjacent_image_difference_for_all_images():
 	for zarrNumber in tqdm(allArray):
 		zpath = inPath + 'MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
 		img, attrs = ms.get_image_from_zarr(zpath)
+		if img is None:
+			continue		
 		data['difference'][zarrNumber] = np.zeros(img.shape[0])
 		
+		width, height = img[0].shape
+
+		mid_w = width // 2
+		mid_h = height // 2
+		
+		start_w = mid_w - 500
+		end_w = mid_w + 500
+		start_h = mid_h - 500
+		end_h = mid_h + 500
+		
 		for i in range(img.shape[0]):
-			pImage = np.array(img[i-1])
-			image = np.array(img[i])
-			diff = image - pImage
-			diff = np.power(diff,2)
-			diff = np.abs(diff)
-			diff = np.sum(diff)
-			n = image.shape[0] * image.shape[1]
-			diff = diff / n
-			
-			data['difference'][zarrNumber][i] = np.sqrt(diff)
+			pImage = np.array(img[i-1][start_w:end_w,start_h:end_h])
+			image = np.array(img[i][start_w:end_w,start_h:end_h])
+			similarity_score, _ = ssim(image, pImage, full=True)
+			data['difference'][zarrNumber][i] = similarity_score
 			if data['means'][zarrNumber][i] == 0:
 				break
 	data = data_saver_to_json(data)
@@ -332,6 +348,8 @@ def determine_pixel_dimensions_for_all_images():
 	for zarrNumber in allArray:
 		zpath = inPath + 'MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
 		img, attrs = ms.get_image_from_zarr(zpath)
+		if img is None:
+			continue
 		data['width'][zarrNumber] = img.shape[1]
 		data['height'][zarrNumber] = img.shape[2]
 	data = data_saver_to_json(data)
@@ -346,6 +364,8 @@ def calculate_histogram_for_all_data():
 	for zarrNumber in tqdm(allArray):
 		zpath = inPath + 'MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
 		img, attrs = ms.get_image_from_zarr(zpath)
+		if img is None:
+			continue
 		data['histogram'][zarrNumber] = []
 		
 		for i in range(img.shape[0]):
@@ -390,6 +410,8 @@ def create_flythrough_video_for_data_visualization():
 		for zarrNumber in FlyArrays:
 			zpath = inPath + 'MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
 			img, attrs = ms.get_image_from_zarr(zpath)
+			if img is None:
+				continue
 			for i in range(data['length'][zarrNumber]+1):
 				image = np.array(img[i])
 				image = image / 16
@@ -537,6 +559,8 @@ def save_averaged_histograms(zarrNumber,histogram):
 def saveSurveyImage(zarrNumber):
 	zpath = inPath + 'MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
 	img, attrs = ms.get_image_from_zarr(zpath)
+	if img is None:
+		return False
 	index = int(data['length'][zarrNumber]) // 2
 	image = np.array(img[index])
 	cv.imwrite(surveyPath + f"example_{zarrNumber}.png",image/16)
