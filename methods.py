@@ -68,7 +68,7 @@ def get_image_from_zarr(path):
 		zimg = da.from_zarr(path, component="muse/stitched/")
 		return zimg, None
 	except:
-		if save_single_panel_tiff_as_zarr_file(zpath):
+		if save_single_panel_tiff_as_zarr_file(path):
 			zimg = da.from_zarr(path, component="muse/stitched/")
 			return zimg, None
 		else:
@@ -950,12 +950,11 @@ def save_single_panel_tiff_as_zarr_file(zpath):
 	zcount = 0
 	for t in tlist:
 		stack_size = os.path.getsize(t)
-		c = np.floor(stack_size/bytes_per_image) + 1
+		c = int(np.floor(stack_size/bytes_per_image) + 1)
 		for i in range(c):
 			image = tiffio.imread(t, key = i)
 			full[zcount] = image
 			zcount += 1
-	zarr.save(zpath, data)
 	return True
 	
 	

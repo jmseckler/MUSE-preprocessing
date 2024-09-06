@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 cmdInputs = {
 	'-o':{"name":"Override Output","types":['str'],"names":['path'],"variable":["./output/"],"active":False,"tooltips":"Changes output directory"},	
 	'-su':{"name":"Data Survey","types":[],"names":[],"variable":[],"active":False,"tooltips":"Perform Data Survey"},
-	'-r':{"name":"Recursive","types":[],"names":[],"variable":[],"active":False,"tooltips":"Finds all folders in the "},
+	'-r':{"name":"Recursive","types":[],"names":[],"variable":[],"active":False,"tooltips":"Finds all folders in the base directory"},
 	'-f':{"name":"Flythrough","types":[],"names":[],"variable":[],"active":False,"tooltips":"Creates a video flythrough (Linux Only)"},
 	'-i':{"name":"Individual Curves","types":[],"names":[],"variable":[],"active":False,"tooltips":"Saves the invidual curves for means, variance, and difference"},
 	}
@@ -529,12 +529,12 @@ def rewrite_data_survey_file_and_write_survey_images():
 def prepareDataForSurvey(tag,zarrNumber):
 	pData = np.mean(data[tag][zarrNumber][data[tag][zarrNumber] != 0])
 	try:
-		pData = int(pData)
+		pData = float(pData)
 	except ValueError:
 		pData = 0
 	sData = np.std(data[tag][zarrNumber][data[tag][zarrNumber] != 0])
 	try:
-		sData = int(sData)
+		sData = float(sData)
 	except ValueError:
 		sData = 0
 	
