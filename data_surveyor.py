@@ -493,7 +493,7 @@ def format_image_number_to_10000(c):
 
 
 def compile_pngs_to_movie(runNumber):
-	cmd = f"ffmpeg -framerate 10 -i {tmpPath}image_%04d.png -c:v libx264 -r 30 -pix_fmt yuv420p {surveyPath}flythrough_{runNumber}.mp4"
+	cmd = f"ffmpeg -framerate 10 -i {tmpPath}image_%04d.png -c:v libx264 -r 30 -y -pix_fmt yuv420p {surveyPath}flythrough_{runNumber}.mp4"
 	stream = os.popen(cmd)
 	output = stream.read()
 	print(output)
@@ -529,12 +529,16 @@ def rewrite_data_survey_file_and_write_survey_images():
 def prepareDataForSurvey(tag,zarrNumber):
 	pData = np.mean(data[tag][zarrNumber][data[tag][zarrNumber] != 0])
 	try:
-		pData = float(pData)
+		if tag == 'difference':
+			pData = 1000 - 1000 * pData
+		pData = int(pData)
 	except ValueError:
 		pData = 0
 	sData = np.std(data[tag][zarrNumber][data[tag][zarrNumber] != 0])
 	try:
-		sData = float(sData)
+		if tag == 'difference':
+			sData = 1000 - 1000 * sData
+		sData = int(sData)
 	except ValueError:
 		sData = 0
 	

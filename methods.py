@@ -681,7 +681,7 @@ def image_histogram(image, bitdepth = 4096):
 	return histogram
 
 def logFileLoader(zarrPath):
-	path = zarrPath + '/' + logFileName
+	path = zarrPath + logFileName
 	
 	
 	panels = {} #Form of Run#: [hPanels, vPanels]
@@ -696,7 +696,10 @@ def logFileLoader(zarrPath):
 	history = [] #Form of ('run',Run#) or ('trim',Trim#)
 	
 	#Opens the Raw text file form 
-	rawFile = open(path, 'r')
+	if os.path.isfile(path):
+		rawFile = open(path, 'r')
+	else:
+		return {}
 	#regular expressions for capturing information from various row types
 	cycletype = re.compile(r"(?P<type>[A-Z]+) CYCLE")
 	cyclenum = re.compile(r"CYCLE (?P<cycle>\d+)")
@@ -757,7 +760,10 @@ def logFileLoader(zarrPath):
 			vpanels = 0
 			for i in range(0, len(m), 2):
 				x = float(m[i])
-				y = float(m[i+1])
+				try:
+					y = float(m[i+1])
+				except IndexError:
+					y = float(0)
 				if x in xs:
 					xs[x] += 1
 				else:
@@ -768,8 +774,14 @@ def logFileLoader(zarrPath):
 					ys[y] = 1
 				xys.append([x,y])
 			XYPositions[currentRun] = xys
-			hpanels = max(ys.values())
-			vpanels = max(xs.values())
+			try:
+				hpanels = max(ys.values())
+			except:
+				hpanels = 1
+			try:
+				vpanels = max(xs.values())
+			except:
+				vpanels = 1
 			panels[currentRun] = [hpanels, vpanels]
 		elif 'Z positions are' in  row:
 			if currentRun == None:
