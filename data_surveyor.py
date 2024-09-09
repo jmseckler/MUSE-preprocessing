@@ -135,9 +135,9 @@ def variableEncode():
 
 
 def printHelp():
-	print("This is a help for Seckler Post Processing Software.")
-	print("It expects to accept the input from MUSE REVA Preprocessing Software.")
-	print("Command: python post_processing.py <File Name> <Path to Data> <Options>")
+	print("This is a help for Seckler Data Surveyor Software.")
+	print("This is the first step in data processing and compiles all of the metadata for the MUSE software. It accepts the direct output from MUSE Acquire.")
+	print("Command: python data_surveyor.py <File Name> <Path to Data> <Options>")
 	print("")
 	for entry in cmdInputs:
 		print(generateHelpString(entry,cmdInputs[entry]))
