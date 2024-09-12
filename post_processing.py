@@ -107,8 +107,9 @@ def generateHelpString(tag,entry):
 
 def variableEncode():
 	global crop_height, crop_width, mean, std, breakPoint, contrastFactor,downScale,bckNormRuns,bckNormPos,outpath, data, pCores, convolutionCircle, kernel
-	crop_height = [cmdInputs['-cp']['variable'][0],cmdInputs['-cp']['variable'][1]]
-	crop_width = [cmdInputs['-cp']['variable'][2],cmdInputs['-cp']['variable'][3]]
+	if cmdInputs['-cp']['active']:
+		crop_height = [cmdInputs['-cp']['variable'][0],cmdInputs['-cp']['variable'][1]]
+		crop_width = [cmdInputs['-cp']['variable'][2],cmdInputs['-cp']['variable'][3]]
 	mean = cmdInputs['-m']['variable'][0]
 	std = cmdInputs['-m']['variable'][1]
 	breakPoint = cmdInputs['-bk']['variable'][0]
@@ -428,11 +429,11 @@ def determine_if_we_need_to_redo_shift_calculation():
 
 
 def create_zarr_file():
-	global zimg, x, y
+	global zimg, x, y, z
 	zimg = ms.create_basic_zarr_file(outpath + fname + "/",fname)
 	
-	z = means.shape[0]
-	if crop_image:
+	z = data['means'].shape[0] + 1
+	if cmdInputs['-cp']['active']:
 		x = crop_height[1] - crop_height[0]
 		y = crop_width[1] - crop_width[0]
 	else:
@@ -442,6 +443,20 @@ def create_zarr_file():
 	zshape, zchunk = ms.shape_definer(z,x,y,1)
 	full = zimg.zeros('0', shape=zshape, chunks=zchunk, dtype="i2" )
 	return zimg, full
+
+
+def finish_making_zarr_file():
+	zshape5, zchunk5 = ms.shape_definer(z,x,y,5)
+	down5x = zimg.zeros('1', shape=zshape5, chunks=zchunk5, dtype="i2" )
+	zshape10, zchunk10 = ms.shape_definer(z,x,y,10)
+	down10x = zimg.zeros('2', shape=zshape10, chunks=zchunk10, dtype="i2" )
+	
+	for i in range(z):
+		down5x[i] = cv.resize(zfull[i],dsize = (zshape5[2],zshape5[1]),interpolation=cv.INTER_CUBIC)
+		down10x[i] = cv.resize(zfull[i],dsize = (zshape10[2],zshape10[1]),interpolation=cv.INTER_CUBIC) 
+
+	ms.create_zarr_attr(outpath + fname,fname)
+	return down5x, down10x
 
 
 def compileIndices(runNumber):
@@ -500,7 +515,8 @@ def img_process(index):
 		image = image - m
 	image = contrastFactor * image
 	image = image + mean
-	image = image[crop_height[0]:crop_height[1],crop_width[0]:crop_width[1]]
+	if cmdInputs['-cp']['active']:
+		image = image[crop_height[0]:crop_height[1],crop_width[0]:crop_width[1]]
 	
 	#performs enhanced contrasting
 	if cmdInputs['-bt']['active']:
@@ -607,21 +623,6 @@ for zarrNumber in runArray:
 	for  index in tqdm(indicies):
 		img_process(index)
 	
-#	indicies = compileIndices(zarrNumber)
-	
-#	if cmdInputs['-bk']['active']:
-#		results = img_process(indicies[0])
-#	else:
-#		for indexs in indicies:
-#			if len(indexs) < pCores:
-#				threadsToStart = len(indexs)
-#			else:
-#				threadsToStart = pCores
-#			if len(indexs) == 1:
-#				results = img_process(indexs[0])
-#			elif __name__ == "__main__":
-#				with multiprocessing.Pool(processes=threadsToStart) as pool:
-#					results = pool.map(img_process, indexs)
 
 
 if cmdInputs['-z']['active']:

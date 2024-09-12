@@ -630,9 +630,16 @@ def remove_directory(directory):
 def copy_directory(src,dst):
 	shutil.copytree(src,dst)
 
-def copy_zarr_attr(path,zname):
-	dst = path + '/' + zname + '.zarr/.zattrs'
-	shutil.copyfile(zarr_attr_path, dst)
+def create_zarr_attr(path,zname):
+	dst = path + '/'+ zname + '.zarr/.zattrs'
+	zattr = generate_zattr_file()
+	
+	zFile = open(dst,'w')
+	
+	for line in zattr:
+		zFile.write(line + '\n')
+	zFile.close()
+	
 
 def shape_definer(n,x,y,scale):
 	zshape = (n,int(x / scale),int(y / scale))
@@ -969,50 +976,106 @@ def save_single_panel_tiff_as_zarr_file(zpath):
 			zcount += 1
 	return True
 	
-	
+
+def data_loader_from_json(metaPath):
+	dataPath = metaPath + '/data.dat'
+	if os.path.exists(dataPath):
+		with open(dataPath) as user_file:
+			file_contents = user_file.read()
+		data = json.loads(file_contents)
+		data = convertDataTagToArray(data)
 		
+	else:
+		data = {}
+	return data
 
+def data_saver_to_json(datum,metaPath):
+	dataPath = metaPath + '/data.dat'
+	readyData = convertDataTagTolist(datum)
+	
+	with open(dataPath, 'w') as f:
+		json.dump(readyData, f)
+	
+	datum = convertDataTagToArray(datum)
+	return datum
 
+def generate_zattr_file(depth = 12,pixel=0.9):
+	x0 = float(pixel)
+	y0 = float(pixel)
+	x1 = pixel * 5
+	y1 = pixel * 5
+	x2 = pixel * 10
+	y2 = pixel * 10
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+	zattr = [
+		'{',
+		'    "multiscales": [',
+		'        {',
+		'            "axes": [',
+		'                {',
+		'                    "name": "z",',
+		'                    "type": "space",',
+		'                    "unit": "micrometer"',
+		'                },',
+		'                {',
+		'                    "name": "y",',
+		'                    "type": "space",',
+		'                    "unit": "micrometer"',
+		'                },',
+		'                {',
+		'                    "name": "x",',
+		'                    "type": "space",',
+		'                    "unit": "micrometer"',
+		'                }',
+		'            ],',
+		'            "datasets": [',
+		'                {',
+		'                    "coordinateTransformations": [',
+		'                        {',
+		'                            "scale": [',
+		f'                                {depth},',
+		f'                                {x0},',
+		f'                                {y0}',
+		'                            ],',
+		'                            "type": "scale"',
+		'                        }',
+		'                    ],',
+		'                    "path": "data/0"',
+		'                },',
+		'                {',
+		'                    "coordinateTransformations": [',
+		'                        {',
+		'                            "scale": [',
+		f'                                {depth},',
+		f'                                {x1},',
+		f'                                {y1}',
+		'                            ],',
+		'                            "type": "scale"',
+		'                        }',
+		'                    ],',
+		'                    "path": "data/1"',
+		'                },',
+		'                {',
+		'                    "coordinateTransformations": [',
+		'                        {',
+		'                            "scale": [',
+		f'                                {depth},',
+		f'                                {x2},',
+		f'                                {x2}',
+		'                            ],',
+		'                            "type": "scale"',
+		'                        }',
+		'                    ],',
+		'                    "path": "data/2"',
+		'                }',
+		'            ],',
+		'            "name": "/data",',
+		'            "version": "0.4"',
+		'        }',
+		'    ]',
+		'}',
+	]
+	return zattr
 
 
 
