@@ -1,46 +1,31 @@
 # MUSE-preprocessing
 This is a repository for 3D-MUSE preprocessing software
 
-Data Surveyor Needs to be run first to generate metadata files. 
+This is a help for Seckler Data Surveyor Software.
+This is the first step in data processing and compiles all of the metadata for the MUSE software. It accepts the direct output from MUSE Acquire.
 Command: python data_surveyor.py <File Name> <Path to Data> <Options>
 
---o <path> 		Changes output directory 
---su 		Perform Data Survey 
---r 		Finds all folders in the base directory 
+--8b 		Downsamples zarr to 8-bit data 
+--br <intensity> 		Changes the global brightness of the images, Default: 1000 
+--bk <Index> 		Only take out one image as a PNG and ignores all others 
+--bt <kernel> 		Performs Black Hat and Top Hate Contrasting, kernel size can be set 
+--ma <type> <kernel> 		Choose a modality to add to the image, often paired with -ms to subtract another modality. Of the form Modality type: Opening, Closing, Gradient, TopHat,BlackHat, and a kernal size Default: None, 50 pixels 
+--ms <type> <kernel> 		Choose a modality to subtract from the image, often paired with -ma to add another modality. Of the form Modality type: Opening, Closing, Gradient, TopHat,BlackHat, and a kernal size Default: None, 50 pixels 
+--d <kernel> 		Dialates image features. Default: 2 pixels 
+--e <kernel> 		Erodes image features, good for elucidating axons. Default: 2 pixels 
+--png 		Saves final output as PNG file 
+--c <arrays> 		Surveys data, collects all metadata, and outputs intial files 
 --f 		Creates a video flythrough (Linux Only) 
+--fg <spacing> 		Creates a video flythrough with gridlines overlayed 
+--fi <crop points> 		Crops and histogram matches all data after cropping, this accepts a list [Height Min, Highe Max, Width Min, Width Max] 
 --i 		Saves the invidual curves for means, variance, and difference 
-
-
-
-
-This is a help for Seckler Post Processing Software.
-It expects to accept the input from MUSE REVA Preprocessing Software.
-Command: python post_processing.py <File Name> <Path to Data> <Run Array> <Options>
-
---bk <break point> 		Skips to image listed, analyzes that image, and that stops program. Default 0th image
-
---bt 		Preforms enhanced contrast enhancement using TopHat and BlackHat Imaging Modalities 
-
---cp <height min> <height max> <width min> <width max> 		Crops the image to the specified height and width. Default: Will not crop 
-
---ct <contrast factor> 		Contrasts the data according to new_px = factor * (old_px - mean) + 2055. Default: Factor = 1 
-
---d <scaling factor> 		Downscale data by whatever factor the user inputs. Default: 4 
-
---h 		Generates and prints help message 
-
---m <mean> <std> 		Override mean to save time, you must input the mean and the standard deviation as integers of floating point values 
-
---n <run start> <run end> <background min height> <background max height> 		Normalizes the background of a run when the light was misaligned 
-
+--p 		Process Image 
 --o <path> 		Changes output directory 
-
---p <processors> 		Sets the maximum number of processing cores that program will used. Default is 4 
-
---sb 		Adds scalebar to images outputed 
-
---sk 		Skips aligning between runs 
-
---v 		Makes a set of downscaled pngs to be compiled into a flythrough in /flythrough/ 
-
---z 		Write output to zarr file rather than pngs 
+--of <min> 		Sets boundaries for focus exclusion 
+--os <min> <max> 		Sets boundary for similarity exclusion 
+--r 		Finds all folders in the base directory 
+--s 		Surveys data, collects all metadata, and outputs intial files 
+--sk <alignments> 		Skips aligning between runs, assumes 0 shift for all shifts not entered. Enter shift in form of xshift,yshift for each array 
+--su 		Rewrites Data Surveyor Metadata Files 
+--tr <amount> 		Rewrites Data Surveyor Metadata Files 
+--w 		Windows data and requires variables of the form <Min Intensity> <Max Intensity> 
