@@ -18,9 +18,9 @@ cmdInputs = {
 	'-8b':{"name":"Downgrade Sample","types":[],"names":[],"variable":[],"active":False,"tooltips":"Downsamples zarr to 8-bit data"},
 	'-br':{"name":"Brightness Increase","types":['int'],"names":['intensity'],"variable":[1000],"active":False,"tooltips":"Changes the global brightness of the images, Default: 1000"},
 	'-bk':{"name":"BreakPoint","types":['int'],"names":['Index'],"variable":[1],"active":False,"tooltips":"Only take out one image as a PNG and ignores all others"},
-	'-bt':{"name":"Black Hate  Contrasting","types":['int'],"names":['kernel'],"variable":[50],"active":False,"tooltips":"Performs Black Hat and Top Hate Contrasting, kernel size can be set"},
-	'-ma':{"name":"Modality Add","types":['str','int'],"names":['type','kernel'],"variable":['None',50],"active":False,"tooltips":"Choose a modality to add to the image, often paired with -ms to subtract another modality. Of the form Modality type: Opening, Closing, Gradient, TopHat,BlackHat, and a kernal size Default: None, 50 pixels"},
-	'-ms':{"name":"Modality Subtract","types":['str','int'],"names":['type','kernel'],"variable":['None',2],"active":False,"tooltips":"Choose a modality to subtract from the image, often paired with -ma to add another modality. Of the form Modality type: Opening, Closing, Gradient, TopHat,BlackHat, and a kernal size Default: None, 50 pixels"},
+	'-bt':{"name":"Black Hate  Contrasting","types":['int'],"names":['kernel'],"variable":[30],"active":False,"tooltips":"Performs Black Hat and Top Hate Contrasting, kernel size can be set"},
+	'-ma':{"name":"Modality Add","types":['str','int'],"names":['type','kernel'],"variable":['None',30],"active":False,"tooltips":"Choose a modality to add to the image, often paired with -ms to subtract another modality. Of the form Modality type: Opening, Closing, Gradient, TopHat,BlackHat, and a kernal size Default: None, 30 pixels"},
+	'-ms':{"name":"Modality Subtract","types":['str','int'],"names":['type','kernel'],"variable":['None',30],"active":False,"tooltips":"Choose a modality to subtract from the image, often paired with -ma to add another modality. Of the form Modality type: Opening, Closing, Gradient, TopHat,BlackHat, and a kernal size Default: None, 50 pixels"},
 	'-d':{"name":"Dialation","types":['int'],"names":['kernel'],"variable":[2],"active":False,"tooltips":"Dialates image features. Default: 2 pixels"},
 	'-e':{"name":"Erosion","types":['int'],"names":['kernel'],"variable":[2],"active":False,"tooltips":"Erodes image features, good for elucidating axons. Default: 2 pixels"},
 	'-png':{"name":"PNG Stack","types":[],"names":[],"variable":[],"active":False,"tooltips":"Saves final output as PNG file"},
@@ -35,10 +35,11 @@ cmdInputs = {
 	'-os':{"name":"Similarity Bounds","types":['int','int'],"names":["min","max"],"variable":[15,100],"active":False,"tooltips":"Sets boundary for similarity exclusion"},
 	'-r':{"name":"Recursive","types":[],"names":[],"variable":[],"active":False,"tooltips":"Finds all folders in the base directory"},
 	'-s':{"name":"Survey Data","types":[],"names":[],"variable":[],"active":False,"tooltips":"Surveys data, collects all metadata, and outputs intial files"},
+	'-sb':{"name":"Scale Bar","types":[],"names":[],"variable":[],"active":False,"tooltips":"Adds scalebar to the output image of processor."},
 	'-sk':{"name":"Skip Alignment","types":['list'],"names":['alignments'],"variable":[[]],"active":False,"tooltips":"Skips aligning between runs, assumes 0 shift for all shifts not entered. Enter shift in form of xshift,yshift for each array"},
 	'-su':{"name":"Data Survey","types":[],"names":[],"variable":[],"active":False,"tooltips":"Rewrites Data Surveyor Metadata Files"},
 	'-tr':{"name":"Truncate Data","types":['int'],"names":['amount'],"variable":[0],"active":False,"tooltips":"Rewrites Data Surveyor Metadata Files"},
-	'-w':{"name":"Windowing","types":['int','int'],"names":[],"variable":[0,4095],"active":False,"tooltips":"Windows data and requires variables of the form <Min Intensity> <Max Intensity>"}
+	'-w':{"name":"Windowing","types":['int','int'],"names":["Min","Max"],"variable":[0,4095],"active":False,"tooltips":"Windows data and requires variables of the form <Min Intensity> <Max Intensity>"}
 	}
 
 #Define the directory structure which the program will use. Version 2.1 will stop wiping all previous data to go with efficency
@@ -66,10 +67,9 @@ fly_index_x = -50
 fly_index_y = 50
 fly_scale = 5
 
-
-scalebar_index_x = -50
-scalebar_index_y = -250
 scalebar_length_pixels = 200
+scalebar_index_x = -50
+scalebar_index_y = -50 - scalebar_length_pixels
 scalebar_length = int(scalebar_length_pixels * 0.9)
 scalebar_color = (255,255,255)
 scalebar_thickness = 5
@@ -627,31 +627,39 @@ def overlay_image_attr_on_image(image,mean,laplace,difference):
 		cv.putText(image, text[i], position, fly_font, fly_font_scale, fly_color, fly_thickness, cv.LINE_AA)
 	return image
 
-def overlay_scalebar_on_image(image):
+def overlay_scalebar_on_image(image,brate=1, length_mode=1):
 	position = create_text_position(image.shape,False)
+	
+	
+	scalebarColor = (brate * scalebar_color[0],brate * scalebar_color[1],brate * scalebar_color[2])
 	
 	start_point = position
 	end_point = (position[0] + scalebar_length_pixels, position[1])
-	cv.line(image, start_point, end_point, scalebar_color, scalebar_thickness)
+	cv.line(image, start_point, end_point, scalebarColor, scalebar_thickness)
 	
 	
 	text = f"{scalebar_length} um"
 	text_size = cv.getTextSize(text, fly_font, fly_font_scale, fly_thickness)[0]
 	scalebar_text_offset = (scalebar_length_pixels - text_size[0]) // 2
+
+	flyColor = (brate * fly_color[0],brate * fly_color[1],brate * fly_color[2])
+
 	
 	text_position = (start_point[0] + scalebar_text_offset, start_point[1] - 10)
-	cv.putText(image, text, text_position, fly_font, fly_font_scale, fly_color, fly_thickness, cv.LINE_AA)
+	cv.putText(image, text, text_position, fly_font, fly_font_scale, flyColor, fly_thickness, cv.LINE_AA)
 	return image
 
 
-def overlay_header_on_image(image,fname):
+def overlay_header_on_image(image,fname,brate=1):
 	text = fname.capitalize()
 	text_size = cv.getTextSize(text, fly_font, header_font_scale, header_thickness)[0]
+	
+	flyColor = (brate * fly_color[0],brate * fly_color[1],brate * fly_color[2])
 	
 	image_width = image.shape[1]
 	text_x = (image_width - text_size[0]) // 2
 	text_y = 30 + text_size[1]  # 30 pixels padding from the top
-	cv.putText(image, text, (text_x, text_y), fly_font, header_font_scale, fly_color, header_thickness, cv.LINE_AA)
+	cv.putText(image, text, (text_x, text_y), fly_font, header_font_scale, flyColor, header_thickness, cv.LINE_AA)
 	return image
 
 
@@ -1015,7 +1023,7 @@ class globals:
 			self.create_flythrough_video_for_data_visualization()
 		if self.cmdInputs['-i']['active']:
 			self.save_inidividual_curves()
-		data["stage1_flags"] = self.cmdInputs
+		self.data["stage1_flags"] = self.cmdInputs
 		self.saveMetadata()
 
 
@@ -1356,7 +1364,7 @@ class globals:
 			self.create_final_flythrough_video_for_data_visualization(True)
 		
 		self.data['shift'] = self.shift
-		data["stage2_flags"] = self.cmdInputs
+		self.data["stage2_flags"] = self.cmdInputs
 		self.saveMetadata()
 		
 
@@ -1441,6 +1449,16 @@ class globals:
 			
 
 	def coregister_between_blocks(self):
+#		This function needs to look at the first/last valid image of each run and coregister them together recording the relative shifts between these runs in self.shift.
+#		self.shift is of the form self.shift[run number] = np.array([x_shift,y_shift]). 
+#		This will assume Integer Shift
+#		Use the variable self.oldPath to look for masks.
+
+		self.shift = {}
+		
+		#Feel Free to Delete Everything After this
+		
+		
 		self.width = 0
 		self.height = 0
 		self.length = 0
@@ -1453,7 +1471,6 @@ class globals:
 		
 		print(self.width,self.height)		
 
-		self.shift = {}
 		for zarrNumber in self.useArray:
 			if self.width == self.data['width'][zarrNumber] and self.height == self.data['height'][zarrNumber]:
 				starting_zarr = zarrNumber
@@ -1643,7 +1660,7 @@ class globals:
 		self.zimg = self.finalIMG
 		
 		self.save_individual_histograms(self.imgPath,self.histogram,0)
-		data["stage3_flags"] = self.cmdInputs
+		self.data["stage3_flags"] = self.cmdInputs
 		self.saveMetadata()
 
 #		#Check if Flythrough and write new flythrough
@@ -1693,7 +1710,10 @@ class globals:
 	
 	def find_smoothed_histogram_signal_of_image(self,image):
 		histogram = image_histogram(image)
-		self.histogram += histogram
+		try:
+			self.histogram += histogram
+		except:
+			pass
 		smooth_signal = savgol_filter(histogram, 50, 2)
 		smooth_signal[0:100] = 0
 		smooth_signal[4050:-1] = 0
@@ -1795,7 +1815,7 @@ class globals:
 			self.windowMax = self.cmdInputs['-w']['variable'][1]
 			self.windowHalf = (self.windowMax - self.windowMin) // 2
 			self.windowMid = self.windowMin + self.windowHalf
-			self.windowContrast = byteDeapth // self.windowHalf
+			self.windowContrast = byteDeapth // (2 * self.windowHalf)
 		
 		if self.cmdInputs['-bt']['active']:
 			elipse_size = self.cmdInputs['-bt']['variable'][0]
@@ -1852,19 +1872,8 @@ class globals:
 	def process_image(self,image,c):
 		image = np.array(image).astype(float)
 		
-		
-		
-		#Perform Windowing
-		if self.cmdInputs['-w']['active']:
-			image -= self.windowMid
-			image *= self.windowContrast
-			image += byteDeapth / 2
-			image = np.clip(image,0,byteDeapth)
-		
-		
 		#Adjust Brightness
 		if self.cmdInputs['-br']['active']:
-			image -= self.mean
 			image += self.cmdInputs['-br']['variable'][0]
 			image = np.clip(image,0,byteDeapth)
 		
@@ -1889,15 +1898,24 @@ class globals:
 		if self.cmdInputs['-ms']['active']:
 			morph = cv.morphologyEx(image, self.subtract_type, self.subtract)
 			image = image - morph
+
+		#Perform Windowing
+		if self.cmdInputs['-w']['active']:
+			image -= self.windowMid
+			image *= self.windowContrast
+			image += byteDeapth / 2
+			image = np.clip(image,0,byteDeapth)
 		
-		
-		image = image.astype('uint16')
+		if self.cmdInputs['-sb']['active']:
+			image = overlay_scalebar_on_image(image,16)
 		
 		if self.cmdInputs['-png']['active']:
 			cv.imwrite(self.pngPath + f"/image_{c}.png",image//16)
+		image = image.astype('uint16')
 		
 		if self.cmdInputs['-8b']['active']:
 			image = image //16
+
 		return image
 
 
