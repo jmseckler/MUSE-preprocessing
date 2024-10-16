@@ -12,6 +12,7 @@ import skimage as sk
 import scipy as sp
 import matplotlib.pyplot as plt
 import tifffile as tiffio
+import itk
 
 #Define Basic Variables Needed For the program
 cmdInputs = {
@@ -271,8 +272,6 @@ def image_histogram(image, bitdepth = 4096):
 	histogram, bin_edges = np.histogram(flattened_array, bins=bitdepth, range=(0, bitdepth))
 	
 	return histogram
-
-
 
 def find_image_position(large_image, small_image):
 	large_image = large_image // 16
@@ -1570,8 +1569,58 @@ class globals:
 		cv.imwrite(f'./{zarrNumber_2}_img1.png',zimg1//16)
 		cv.imwrite(f'./{zarrNumber_2}_img2.png',zimg2//16)
 
+		#I think the way this was working before I changed it it was always
+		#assigning the shift to zarrNumber_2 regardless of which zarrNumber
+		#was greater but I think the way we are accumulating offsets in the
+		#shift array we always want shift[i] to be the shift you would apply
+		#to zarrNumber_i to register it to zarrNumber_i-1 so this should be
+		#checking which zarrNumber to assign the shift to unless I am confused
+		#about the order of the contents of useArray
+		#self.shift[zarrNumber_2] =  find_image_position(zimg1, zimg2)
 		
-		self.shift[zarrNumber_2] =  find_image_position(zimg1, zimg2)
+		#basically the shift should always be assigned to the greater zarrNumber
+		#because we are finding the shift to align the first slice in the greater
+		#zarrNumber to the last slice in the lower zarrNumber
+		if zarrNumber_2 > zarrNumber_1:
+			self.shift[zarrNumber_2] = self.register_images(zarrNumber_2, zimg1, zimg2)
+		else:
+			self.shift[zarrNumber_1] = self.register_images(zarrNumber_1, zimg2, zimg1)
+	
+	#Returns the shift required to align moving_image to fixed_image
+	#moving_image and fixed_image should be numpy arrays
+	def register_images(self, moving_index, fixed_image, moving_image):
+		f_img = itk.GetImageFromArray(np.ascontiguousarray(fixed_image.astype('float')))
+		m_img = itk.GetImageFromArray(np.ascontiguousarray(moving_image.astype('float')))
+		
+		parameter_object = itk.ParameterObject.New()
+		parameter_map_translation = parameter_object.GetDefaultParameterMap('translation')
+		parameter_map_translation['Metric'] = ['AdvancedNormalizedCorrelation']
+
+		parameter_object.AddParameterMap(parameter_map_translation)
+		
+		
+		elastix_object = itk.ElastixRegistrationMethod.New(fixed_image, moving_image)
+		try:
+			f_mask = itk.imread(os.path.join(self.oldPath, f"{moving_index - 1}_last.png"), itk.UC)
+			elastix_object.setFixedMask(f_mask)
+		except:
+			pass
+		try:
+			m_mask = itk.imread(os.path.join(self.oldPath, f"{moving_index}_first.png"), itk.UC)
+			elastix_object.setMovingMask(m_mask)
+		except:
+			pass
+		
+		initial_transform_parameter_path = os.path.join(self.oldPath, f"{moving_index}.txt")
+		if os.path.isfile(initial_transform_parameter_path):
+			elastix_object.SetInitialTransformParameterFileName(initial_transform_parameter_path)
+		
+		elastix_object.setParameterObject(parameter_object)
+		elastix_object.setLogToConsole(False) #can set this to true for debugging if necessary but otherwise lots of clutter
+		elastix_object.UpdateLargestPossiblRegion()
+		result_transform_parameters = elastix_object.GetTransformParameterObject()
+		
+		return [-int(x) for x in result_transform_parameters.GetParameter(0, 'TransformParameters')[::-1]]
 		
 	
 	def compile_images_into_single_zarr(self):
