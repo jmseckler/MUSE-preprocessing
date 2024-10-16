@@ -1620,7 +1620,7 @@ class globals:
 		elastix_object.UpdateLargestPossiblRegion()
 		result_transform_parameters = elastix_object.GetTransformParameterObject()
 		
-		return [-int(x) for x in result_transform_parameters.GetParameter(0, 'TransformParameters')[::-1]]
+		return np.array([-int(x) for x in result_transform_parameters.GetParameter(0, 'TransformParameters')[::-1]])
 		
 	
 	def compile_images_into_single_zarr(self):
