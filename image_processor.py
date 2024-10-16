@@ -1587,6 +1587,7 @@ class globals:
 			self.shift[zarrNumber_1] = self.register_images(zarrNumber_1, zimg2, zimg1)
 	
 	#Returns the shift required to align moving_image to fixed_image
+	#np.array([xshift, yshift]), positive shifts are down and right, negative up and left
 	#moving_image and fixed_image should be numpy arrays
 	def register_images(self, moving_index, fixed_image, moving_image):
 		f_img = itk.GetImageFromArray(np.ascontiguousarray(fixed_image.astype('float')))
