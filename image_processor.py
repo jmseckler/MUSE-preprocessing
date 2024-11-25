@@ -16,20 +16,20 @@ import tifffile as tiffio
 #Define Basic Variables Needed For the program
 cmdInputs = {
 	'-8b':{"name":"Downgrade Sample","types":[],"names":[],"variable":[],"active":False,"tooltips":"Downsamples zarr to 8-bit data"},
-	'-br':{"name":"Brightness Increase","types":['int'],"names":['intensity'],"variable":[1000],"active":False,"tooltips":"Changes the global brightness of the images, Default: 1000"},
-	'-bk':{"name":"BreakPoint","types":['int'],"names":['Index'],"variable":[1],"active":False,"tooltips":"Only take out one image as a PNG and ignores all others"},
-	'-bt':{"name":"Black Hate  Contrasting","types":['int'],"names":['kernel'],"variable":[30],"active":False,"tooltips":"Performs Black Hat and Top Hate Contrasting, kernel size can be set"},
-	'-ma':{"name":"Modality Add","types":['str','int'],"names":['type','kernel'],"variable":['None',30],"active":False,"tooltips":"Choose a modality to add to the image, often paired with -ms to subtract another modality. Of the form Modality type: Opening, Closing, Gradient, TopHat,BlackHat, and a kernal size Default: None, 30 pixels"},
-	'-ms':{"name":"Modality Subtract","types":['str','int'],"names":['type','kernel'],"variable":['None',30],"active":False,"tooltips":"Choose a modality to subtract from the image, often paired with -ma to add another modality. Of the form Modality type: Opening, Closing, Gradient, TopHat,BlackHat, and a kernal size Default: None, 50 pixels"},
+	'-bh':{"name":"BlackHat","types":['int'],"names":['Kernel'],"variable":[20],"active":False,"tooltips":"Sets Blackhat kernel size"},
+	'-gr':{"name":"Gradient","types":['int'],"names":['Kernel'],"variable":[30],"active":False,"tooltips":"Sets Gradient kernel size"},
+	'-cl':{"name":"Closing","types":['int'],"names":['Kernel'],"variable":[30],"active":False,"tooltips":"Sets Closing kernel size"},
+	'-op':{"name":"Opening","types":['int'],"names":['Kernel'],"variable":[30],"active":False,"tooltips":"Sets Opening kernel size"},
+	'-th':{"name":"TopHat","types":['int'],"names":['Kernel'],"variable":[20],"active":False,"tooltips":"Sets Tophat kernel size"},
 	'-d':{"name":"Dialation","types":['int'],"names":['kernel'],"variable":[2],"active":False,"tooltips":"Dialates image features. Default: 2 pixels"},
 	'-e':{"name":"Erosion","types":['int'],"names":['kernel'],"variable":[2],"active":False,"tooltips":"Erodes image features, good for elucidating axons. Default: 2 pixels"},
-	'-png':{"name":"PNG Stack","types":[],"names":[],"variable":[],"active":False,"tooltips":"Saves final output as PNG file"},
+	'-bit':{"name":"Output Type","types":['str'],"names":['type'],"variable":['12b'],"active":False,"tooltips":"Determines output of stage 4, this can either be 12b or 8b. Default: 12b"},
+	'-png':{"name":"Output Type","types":['int'],"names":['index'],"variable":[-1],"active":False,"tooltips":"Saves output of stage 4 as png stack, if index is given, saves only a single file"},
 	'-c':{"name":"Finish Data","types":['list'],"names":['arrays'],"variable":[[]],"active":False,"tooltips":"Surveys data, collects all metadata, and outputs intial files"},
-	'-f':{"name":"Flythrough","types":[],"names":[],"variable":[],"active":False,"tooltips":"Creates a video flythrough (Linux Only)"},
-	'-fg':{"name":"Flythrough Grid","types":['int'],"names":["spacing"],"variable":[500],"active":False,"tooltips":"Creates a video flythrough with gridlines overlayed"},
+	'-f':{"name":"Flythrough Grid","types":['int'],"names":['spacing'],"variable":[500],"active":False,"tooltips":"Creates a flythrough video with a spaced grid"},
 	'-fi':{"name":"Crop and Histogram","types":['list'],"names":["crop points"],"variable":[[0,-1,0,-1]],"active":False,"tooltips":"Crops and histogram matches all data after cropping, this accepts a list [Height Min, Highe Max, Width Min, Width Max]"},
 	'-i':{"name":"Individual Curves","types":[],"names":[],"variable":[],"active":False,"tooltips":"Saves the invidual curves for means, variance, and difference"},
-	'-p':{"name":"Process Image","types":[],"names":[],"variable":[],"active":False,"tooltips":"Process Image"},	
+	'-p':{"name":"Process Image","types":['slist','int','int'],"names":['instructions','Min Intensity','Max Intensity'],"variable":[[],0,4095],"active":False,"tooltips":"Process Image, need to input a set of processing instructions as a list. This is of the form erosion_2,dialation_1,blackhat_0,tophat_1 where image processing functions are listed with an underscore and either 0, 1, or 2. 0 represents subtracting the modality, 1 adds it, and 2 replaces the image with it. These functions will be run in order, if recognized, the two integers after this are the windowing variables and are at 0 and 4095 repectively."},	
 	'-o':{"name":"Override Output","types":['str'],"names":['path'],"variable":["./output/"],"active":False,"tooltips":"Changes output directory"},	
 	'-of':{"name":"Focus Bound","types":['int'],"names":['min'],"variable":[15],"active":False,"tooltips":"Sets boundaries for focus exclusion"},
 	'-os':{"name":"Similarity Bounds","types":['int','int'],"names":["min","max"],"variable":[15,100],"active":False,"tooltips":"Sets boundary for similarity exclusion"},
@@ -44,11 +44,9 @@ cmdInputs = {
 
 #Define the directory structure which the program will use. Version 2.1 will stop wiping all previous data to go with efficency
 dataFolder = 'data/'
-metaFolder = 'metadata/'
-oldFolder = metaFolder + 'history/'
 pngFolder = dataFolder + 'png/'
-surveyFolder = metaFolder + 'survey/'
-movieFolder = metaFolder + 'movies/'
+surveyFolder = 'survey/'
+movieFolder = 'movies/'
 
 
 dataQualtyCheck = {
@@ -61,13 +59,13 @@ dataConversionTags = ['means','focus','difference','histogram','shift']
 
 fly_font = cv.FONT_HERSHEY_SIMPLEX
 fly_color = (255,255,255)
-fly_thickness = 2
-fly_font_scale = 1
+fly_thickness = 10
+fly_font_scale = 5
 fly_index_x = -50
 fly_index_y = 50
 fly_scale = 5
 
-scalebar_length_pixels = 200
+scalebar_length_pixels = 1000
 scalebar_index_x = -50
 scalebar_index_y = -50 - scalebar_length_pixels
 scalebar_length = int(scalebar_length_pixels * 0.9)
@@ -77,7 +75,7 @@ scalebar_text_width = 118
 scalebar_text_offset = (scalebar_length_pixels - scalebar_text_width) // 2
 
 header_thickness = 10
-header_font_scale = 3
+header_font_scale = 6
 
 
 byte_depth = np.power(2,12)
@@ -93,18 +91,25 @@ kernel_align = cv.getStructuringElement(cv.MORPH_ELLIPSE,(elipse_size_align,elip
 align_image_size = 1500
 
 modality_type = {
-	'Opening':cv.MORPH_OPEN, 
-	'Closing':cv.MORPH_CLOSE, 
-	'Gradient':cv.MORPH_GRADIENT, 
-	'TopHat':cv.MORPH_TOPHAT,
-	'BlackHat':cv.MORPH_BLACKHAT
+	'Dialation':{'name':'dilate','morph':None, 'kernel':2, 'tag':'-d'},
+	'Erosion':{'name':'erode','morph':None, 'kernel':2, 'tag':'-e'},
+	'Opening':{'name':'opening','morph':cv.MORPH_OPEN, 'kernel':30,'tag':'-op'},
+	'Closing':{'name':'closing','morph':cv.MORPH_CLOSE, 'kernel':30,'tag':'-cl'},
+	'Gradient':{'name':'grad','morph':cv.MORPH_GRADIENT, 'kernel':30,'tag':'-gr'},
+	'TopHat':{'name':'that','morph':cv.MORPH_TOPHAT, 'kernel':30,'tag':'-th'},
+	'BlackHat':{'name':'bhat','morph':cv.MORPH_BLACKHAT, 'kernel':30,'tag':'-bh'}
 	}
+
+postprocessCMD = ['dialation','erosion','open','close','gradient','tophat','blackhat']
+stages = ['begin','survey','compile','finish','post-process']
+
+
 
 #Baseline Functions
 def printHelp():
 	print("This is a help for Seckler Data Surveyor Software.")
-	print("This is the first step in data processing and compiles all of the metadata for the MUSE software. It accepts the direct output from MUSE Acquire.")
-	print("Command: python data_surveyor.py <File Name> <Path to Data> <Options>")
+	print("This is the first step in data processing and compiles all of the metadata for the MUSE software. It accepts the direct output from MUSE Acquire or from MUSE Processor.")
+	print("Command: python data_surveyor.py <Path to Data> <Options>")
 	print("")
 	for entry in cmdInputs:
 		print(generateHelpString(entry,cmdInputs[entry]))
@@ -223,6 +228,12 @@ def generate_zattr_file(depth = 12,pixel=0.9):
 	]
 	return zattr
 
+def get_crop_points_to_center(small,large):
+	diff = (large - small) // 2
+	start = diff
+	end = large - diff
+	return start,end
+
 
 def contrast_enhance_for_image_align(image):
 	contrast = 1.0
@@ -314,10 +325,7 @@ def find_image_position_(large_image, small_image):
 	xShift = large_image.shape[1] // 2
 	yShift = large_image.shape[0] // 2
 	xShift -= align_image_size
-	yShift -= align_image_size
-	
-	print(min_val, max_val, min_loc, max_loc)
-	
+	yShift -= align_image_size	
 	LOC = [max_loc[0] - xShift, max_loc[1] - yShift]
 	
 	return LOC
@@ -333,6 +341,12 @@ def format_image_number_to_10000(c):
 	else:
 		text = str(c)
 	return text
+
+
+def get_time():
+	now = datetime.now()
+	date_time_str = now.strftime("%Y-%m-%d %H:%M:%S")
+	return date_time_str
 
 
 def calculate_fwhm(gaussian_array):
@@ -613,7 +627,7 @@ def overlay_acu_and_index_number_on_image(image,zarrNumber,i):
 	if zarrNumber == "":
 		text = f"Index#{i}"
 	else:
-		text = f"Acq#{zarrNumber}, Index#{i}"
+		text = f"Run#{zarrNumber}, Index#{i}"
 	cv.putText(image, text, position, fly_font, fly_font_scale, fly_color, fly_thickness, cv.LINE_AA)
 	return image
 
@@ -623,7 +637,7 @@ def overlay_image_attr_on_image(image,mean,laplace,difference):
 	x, y = image.shape
 	
 	for i in range(len(text)):
-		position = (50, 50 * i + 50)
+		position = (50, 200 * i + 200)
 		cv.putText(image, text[i], position, fly_font, fly_font_scale, fly_color, fly_thickness, cv.LINE_AA)
 	return image
 
@@ -668,9 +682,9 @@ def overlay_grid_lines_on_image(image,spacing):
 	hLines = image.shape[1] // spacing
 	
 	for h in range(hLines):
-		cv.line(image, (spacing * (h + 1),spacing), (spacing * (h + 1),(vLines - 1) * spacing), scalebar_color, 2)
+		cv.line(image, (spacing * (h + 1),spacing), (spacing * (h + 1),(vLines - 1) * spacing), scalebar_color, 10)
 	for v in range(vLines):
-		cv.line(image, (spacing,spacing * (v + 1)), ((hLines - 1) * spacing,spacing * (v + 1)), scalebar_color, 2)
+		cv.line(image, (spacing,spacing * (v + 1)), ((hLines - 1) * spacing,spacing * (v + 1)), scalebar_color, 10)
 	return image
 	
 
@@ -704,8 +718,14 @@ def findAllDir(path):
 	flist = glob.glob(path + "*")
 	
 	allRuns = []
+	allFolders = []
 	for fname in flist:
 		if os.path.isdir(fname):
+			allFolders.append(fname)
+
+	for fname in allFolders:
+		zpath = fname + os.path.sep + 'MUSE_stitched_acq_1.zarr'
+		if os.path.isdir(zpath):
 			run = fname.split(os.path.sep)[-1]
 			allRuns.append(run)
 	
@@ -738,7 +758,7 @@ def crop_to_center(width,height):
 
 
 def data_loader_from_json(metaPath):
-	dataPath = metaPath + '/data.dat'
+	dataPath = metaPath + 'data.dat'
 	if os.path.exists(dataPath):
 		with open(dataPath) as user_file:
 			file_contents = user_file.read()
@@ -753,6 +773,16 @@ def data_saver_to_json(datum,metaPath):
 	dataPath = metaPath + '/data.dat'
 	readyData = convertDataTagTolist(datum)
 	
+	for key, value in readyData.items():
+		if isinstance(value, np.ndarray):
+			readyData[key] = value.tolist()
+	if 'mean' in readyData:
+		readyData['mean'] = int(readyData['mean'])
+	
+#	for tag in readyData:
+#		print(tag,readyData[tag])
+	
+	
 	with open(dataPath, 'w') as f:
 		json.dump(readyData, f)
 	
@@ -762,15 +792,21 @@ def data_saver_to_json(datum,metaPath):
 def convertDataTagToArray(d):
 	for tag in dataConversionTags:
 		if tag in d:
-			for i in d[tag]:
-				d[tag][i] = np.array(d[tag][i])
+			try:
+				for i in d[tag]:
+					d[tag][i] = np.array(d[tag][i])
+			except:
+				break
 	return d
 
 def convertDataTagTolist(d):
 	for tag in dataConversionTags:
 		if tag in d:
 			for i in d[tag]:
-				d[tag][i] = d[tag][i].tolist()
+				try:
+					d[tag][i] = d[tag][i].tolist()
+				except:
+					break
 	return d
 
 
@@ -838,8 +874,6 @@ def save_single_panel_tiff_as_zarr_file(zpath):
 			zcount += 1
 	return True
 
-
-
 class inputs:
 	def __init__(self,cmd):
 		self.cmdInputs = cmdInputs
@@ -848,14 +882,14 @@ class inputs:
 	def inputParser(self,cmd):
 		n = len(cmd)
 	
-		if n < 3 and '-h' not in cmd:
+		if n < 2 and '-h' not in cmd:
 			print("No filename and/or path given...")
 			quit()
 	
 		if '-h' in cmd:
 			printHelp()
 	
-		self.base_path = cmd[2]
+		self.base_path = cmd[1]
 	
 		for i in range(n):
 			tag = cmd[i]
@@ -874,51 +908,183 @@ class inputs:
 								print(f"Input {tag} has failed to read in input values, using defaults...")	
 						elif self.cmdInputs[tag]['types'][j] == 'list':
 							inputValue = ast.literal_eval(inputValue)
+						elif self.cmdInputs[tag]['types'][j] == 'slist':
+							inputValue = inputValue.split(',')
 						else:
 							inputValue = int(inputValue)
 						self.cmdInputs[tag]['variable'][j] = inputValue
 					except:
 						print(f"Input {tag} has failed to read in input values, using defaults...")
 			elif tag == '-jms':
-				self.base_path = '/media/' + getpass.getuser() + '/' + cmd[2] + '/data/'
+				self.base_path = '/media/' + getpass.getuser() + '/' + cmd[1] + '/data/'
 
 
 
-class globals:
-	def __init__(self,fname,PATH,cmd):
-		print("Setting up all global variables and validating data...")
-		self.fname = fname
-		self.base_path = PATH
-		self.cmdInputs = cmd
+class dataProcessor:
+	def __init__(self,cmd):
+		CMD = inputs(cmd)
+		self.path = CMD.base_path
+		self.cmdInputs = CMD.cmdInputs
+		self.determine_data_state() # Determines which type of data is being loaded and sets everything up
+		if not self.check_for_current_stage_and_if_it_is_valid(): return
+		if self.stage == 2:
+			print(f"Finishing preprocessing on {self.fname}, this may take several minutes...")
+			self.stage = 2
+			flythrough = self.finish_data_preprocessing()
+		elif self.stage == 3:
+			print(f"Cropping {self.fname}, this may take several minutes...")
+			self.stage = 3
+			flythrough = self.histogram_map_and_crop()
+		elif self.stage == 4:
+			print(f"Performing Post-processing on {self.fname}, this may take several minutes...")
+			flythrough = self.process_all_images()
+		if flythrough:
+			print("Creating flythrough...")
+			self.flythrough_create()
+		
+		
+	def determine_data_state(self):
+		dataPath = self.path + os.path.sep + dataFolder + 'data.dat'
+		zpath = self.path + 'MUSE_stitched_acq_1.zarr'
+		self.state = 0
+		if os.path.exists(dataPath):
+			print("Found MUSE Processor data, proceding with pre-processing...")
+			self.state = 3
+		elif os.path.isdir(zpath):
+			print("Found single MUSE Acquire folder, performing survey...")
+			self.state = 1
+		
+		if self.state == 0:
+			flist = findAllDir(self.path)
+			if len(flist) > 0:
+				print(f"Found folder of MUSE Acquire Data, performing recursive survey...")
+				self.state = 2
+
+			
+		if self.state == 0:
+			print(f"Data folder {self.path} invalid, please check and retry...")
+			quit()
+		elif self.state == 1 or self.state == 2:
+			if self.state == 1:
+				flist = [self.path.split(os.path.sep)[-2]]
+			for fname in flist:
+				self.fname = fname
+				print(f"Conducting a survey of {self.fname}, this may take several minutes...")
+				self.begin_precheck_of_data()
+				self.stage = 1
+				self.survey_all_data_and_compile_databases()
+				print("Creating flythrough...")
+				self.flythrough_create()
+		elif self.state == 3:
+			self.fname = self.path.split(os.path.sep)[-2]
+			self.begin_data_setup_for_loading_muse_processor_file()
+
+		self.stage = self.data['stages']['current']		
+		zpath = self.imgPath + 'compiledData.zarr'
+		if os.path.isdir(zpath):
+			self.stage = 3
+		zpath = self.imgPath + self.fname + '.zarr'
+		if os.path.isdir(zpath):
+			self.stage = 4
+		
+		
+		
+		
+		
+		
+	
+	def begin_precheck_of_data(self):
 		self.check_output_directory_structure_and_load_all_metadata()
+		self.stage = 0
 		self.loadMetadata()
+		self.save_stage_info_in_data('begin')
+		
+		self.data['rawPath'] = self.inPath
 		self.findAllValidAcq()
 		self.scrape_tiff_metadata()
-		
-		if self.cmdInputs['-s']['active']:
-			print(f"Conducting a survey of {fname}, this may take several minutes...")
-			self.survey_all_data_and_compile_databases()
+		self.finish_stage_info_in_data('begin')
+	
+	def begin_data_setup_for_loading_muse_processor_file(self):
+		self.check_output_directory_structure_and_load_all_metadata()
+		self.loadMetadata()
+		self.inPath = self.data['rawPath']
+		self.findAllValidAcq()
+		self.scrape_tiff_metadata()
+	
+	def check_for_current_stage_and_if_it_is_valid(self):
+		if not self.cmdInputs['-c']['active'] and self.stage == 2: return
 		if self.cmdInputs['-c']['active']:
-			print(f"Finishing preprocessing on {fname}, this may take several minutes...")
-			self.finish_data_preprocessing()
-		if self.cmdInputs['-fi']['active']:
-			self.histogram_map_and_crop()
-		if self.cmdInputs['-p']['active']:
-			self.process_all_images()
-	
-
-	def check_output_directory_structure_and_load_all_metadata(self):
-		if self.cmdInputs['-o']['active']:
-			self.outpath = cmdInputs['-o']['variable'][0]
-		else:
-			self.outpath = './output/'
+			self.stage = 2
+		elif self.cmdInputs['-fi']['active']:
+			self.stage = 3
+		elif self.cmdInputs['-p']['active']:
+			self.stage = 4
+			
+		if self.stage < 2: 
+			self.begin_precheck_of_data()
+			self.stage = 1
+			self.survey_all_data_and_compile_databases()
+			print("Creating flythrough...")
+			self.flythrough_create()
+			return False
 		
-		if not self.outpath.endswith((self.fname + '/')):
-			self.outpath = self.outpath + self.fname + '/'
+		if self.stage >= 2:
+			if 'stages' not in self.data or 'survey' not in self.data['stages']:
+				print("Data has not been surveyed, please run stage 1 before proceeding...")
+				self.data['stages']['current'] = 0
+				self.saveMetadata()
+				return False
+			
+			qualityArray = []
+			if 'runQuality' in self.data:
+				qualityArray = self.data['runQuality']
+			
+			if len(self.cmdInputs['-c']['variable'][0]) > 0:
+				qualityArray = self.cmdInputs['-c']['variable'][0]
+			
+			
+			if len(self.allArrays) != len(qualityArray):
+				print("Error: Acquisition Tags must be the same length as all Acquisition in raw zarr file. Please adjust input...")
+				return False
+
+		if self.stage >= 3:
+			zpath = self.imgPath + 'compiledData.zarr'
+			if 'compile' not in self.data['stages'] or not os.path.isdir(zpath):
+				print("Zarr file from stage 2 missing or corrupted, please rerun stage 2 and stage 3 before proceeding...")
+				self.data['stages']['current'] = 2
+				self.saveMetadata()
+				return False
+		
+		if self.stage >= 4:
+			zpath = self.imgPath + self.fname + '.zarr'
+			if 'finish' not in self.data['stages'] or not os.path.isdir(zpath):
+				print("Zarr file from stage 3 missing or corrupted, please rerun stage 3 before proceeding...")
+				self.data['stages']['current'] = 3
+				self.saveMetadata()
+				return False
+			
+			if len(self.cmdInputs['-p']['variable'][0]) == 0:
+				print("Error: please add processing commands to stage 4 processing and retry...")
+				return False
+		
+		return True
 	
-		self.inPath = self.base_path + self.fname + '/'
-		self.metaPath = self.outpath + metaFolder
-		self.oldPath = self.outpath + oldFolder
+	def check_output_directory_structure_and_load_all_metadata(self):
+		if self.state > 2:
+			self.outpath = self.path
+		else:
+			self.outpath = cmdInputs['-o']['variable'][0]
+			
+			if not self.outpath.endswith((self.fname + os.path.sep)):
+				self.outpath = self.outpath + self.fname + os.path.sep
+		
+		if self.path.endswith((self.fname)):
+			self.inPath = self.path + os.path.sep
+		elif not self.path.endswith((self.fname + os.path.sep)):
+			self.inPath = self.path + self.fname + os.path.sep
+		else:
+			self.inPath = self.path
+		
 		self.imgPath = self.outpath + dataFolder
 		self.pngPath = self.outpath + pngFolder
 		self.surveyPath = self.outpath + surveyFolder
@@ -926,40 +1092,41 @@ class globals:
 		
 		#Sets up directory structure and wipes old data
 		make_directory(self.outpath)
-		make_directory(self.metaPath)
-		make_directory(self.oldPath)
 		make_directory(self.surveyPath)
 		make_directory(self.imgPath)
-		make_directory(self.moviePath)
-		
-	
+
+
 	def saveMetadata(self):
-		self.data = data_saver_to_json(self.data,self.metaPath)
-	
+		self.data = data_saver_to_json(self.data,self.imgPath)
 	
 	def loadMetadata(self):
-		self.data = data_loader_from_json(self.metaPath)
-	
-	
-	def loadZarrFile(self,zarrNumber):
-		zpath = self.inPath + 'MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
-		img = get_image_from_zarr_as_dask_array(zpath)
-		return img
-	
-	def getAttrFromZarr(self,zarrNumber):
-		zpath = self.inPath + 'MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
-		self.data['attr'][zarrNumber] = get_zarr_attr_as_dict(zpath)
-	
-	def get_log_file_run(self,zarrNumber):
-		for r in self.data['log']['runList']:
-			run = r.split(' ')[-1]
-			if run == zarrNumber:
-				return r
-		return None
+		self.data = data_loader_from_json(self.imgPath)
 
-	def findAllValidAcq(self):
-		flist = glob.glob(self.inPath + "*.zarr")
+
+	def save_stage_info_in_data(self,STAGE):
+		if 'stages' not in self.data:
+			self.data['stages'] = {'current':0}
 		
+		self.data['stages']['current'] = stages.index(STAGE)
+		self.data['stages'][STAGE] = {
+			'start':get_time(),
+			'flags':{}
+			}
+		for cmd in self.cmdInputs:
+			if self.cmdInputs[cmd]['active']:
+				self.data['stages'][STAGE]['flags'][cmd] = self.cmdInputs[cmd]
+	
+	def finish_stage_info_in_data(self,STAGE):
+		self.data['stages'][STAGE]['end'] = get_time()
+		self.data['stages']['current'] = stages.index(STAGE) + 1
+		self.saveMetadata()
+
+			
+	def findAllValidAcq(self):
+		if 'runs' in self.data and len(self.data['runs']) > 0:
+			self.allArrays = self.data['runs']
+			return
+		flist = glob.glob(self.inPath + "*.zarr")
 		allRuns = []
 		for fname in flist:
 			run = fname.split('.')[0]
@@ -969,18 +1136,19 @@ class globals:
 		self.allArrays = []
 		
 		for zarrNumber in allRuns:
-			img = self.loadZarrFile(zarrNumber)
-			try:
-				img = np.array(img[0])
+			if not self.loadRunFile(zarrNumber):
 				self.allArrays.append(int(zarrNumber))
-			except:
-				pass
 		self.allArrays = sorted(self.allArrays)
 		#Added to prevent error when more than 10 acq are in
 		for i in range(len(self.allArrays)):
 			self.allArrays[i] = str(self.allArrays[i])
-	
+		
+		self.data['runs'] = self.allArrays
+		
 	def scrape_tiff_metadata(self):
+		if 'tiffs' in self.data:
+			self.tiffData = self.data['tiffs']
+			return
 		self.tiffData = {}
 		
 		for zarrNumber in self.allArrays:
@@ -996,11 +1164,35 @@ class globals:
 				stack_size = os.path.getsize(t)
 				z += np.floor(stack_size/bytes_per_image) + 1
 				self.tiffData[zarrNumber][count]['images'] = z
+		self.data['tiffs'] = self.tiffData
 		
+
+	def loadRunFile(self,zarrNumber):
+		zpath = self.inPath + 'MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
+		self.IMG = imageViewer(zpath,True)
+		if self.IMG.failed:
+			print(f"Error zarr file {zpath} is corrupted, please check...")
+			return True
+		return False
+	
+	def loadZarrFile(self,fname):
+		zpath = self.imgPath + fname + '.zarr'
+		self.IMG = imageViewer(zpath)
+		if self.IMG.failed:
+			print(f"Error zarr file {zpath} is corrupted, please check...")
+			return True
+		return False
+		
+	
+	def getAttrFromZarr(self,zarrNumber):
+		zpath = self.inPath + 'MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
+		self.data['attr'][zarrNumber] = get_zarr_attr_as_dict(zpath)
+	
 	
 	
 	#START OF SURVEYOR FUNCTIONS
-	def survey_all_data_and_compile_databases(self):
+	def survey_all_data_and_compile_databases_(self):
+		self.save_stage_info_in_data('survey')
 		passer = False
 		if 'attr' not in self.data:
 			self.scrap_all_attr_files_from_zarrs()
@@ -1010,8 +1202,6 @@ class globals:
 			passer = self.calculate_global_focus_for_all_images()
 		if 'difference' not in self.data:
 			passer = self.calculate_global_adjacent_image_difference_for_all_images()
-		if 'histogram' not in self.data:
-			passer = self.calculate_histogram_for_all_data()
 		if 'height' not in self.data or 'width' not in self.data:
 			passer = self.determine_pixel_dimensions_for_all_images()
 		if 'log' not in self.data:
@@ -1019,15 +1209,30 @@ class globals:
 		if passer or self.cmdInputs['-su']['active']:
 			self.rewrite_data_survey_file_and_write_survey_images()
 		
-		if self.cmdInputs['-f']['active']:
-			self.create_flythrough_video_for_data_visualization()
 		if self.cmdInputs['-i']['active']:
 			self.save_inidividual_curves()
-		self.data["stage1_flags"] = self.cmdInputs
-		self.saveMetadata()
-
-
+		self.data['stages']['survey']['end'] = get_time()
 		
+		self.saveMetadata()
+		return True
+
+	def survey_all_data_and_compile_databases(self):
+		self.save_stage_info_in_data('survey')
+		self.scrap_all_attr_files_from_zarrs()
+		self.calculate_global_means_for_all_images_and_save_attributes()
+		self.calculate_global_focus_for_all_images()
+		self.calculate_global_adjacent_image_difference_for_all_images()
+		self.determine_pixel_dimensions_for_all_images()
+		self.data['log'] = logFileLoader(self.inPath)
+		self.rewrite_data_survey_file_and_write_survey_images()
+		
+		if self.cmdInputs['-i']['active']:
+			self.save_inidividual_curves()
+		self.finish_stage_info_in_data('survey')
+		
+		self.saveMetadata()
+		return True
+
 		
 	def scrap_all_attr_files_from_zarrs(self):
 		self.data['attr'] = {}
@@ -1043,13 +1248,16 @@ class globals:
 		self.data['width'] = {}
 		self.data['height'] = {}
 		for zarrNumber in tqdm(self.allArrays):
-			img = self.loadZarrFile(zarrNumber)
-			self.data['means'][zarrNumber] = np.zeros(img.shape[0])
-			self.data['width'][zarrNumber] = img.shape[1]
-			self.data['height'][zarrNumber] = img.shape[2]
+			if self.loadRunFile(zarrNumber):
+				return
 			
-			for i in range(img.shape[0]):
-				self.data['means'][zarrNumber][i] = np.mean(img[i])
+			self.data['means'][zarrNumber] = np.zeros(self.IMG.length)
+			self.data['width'][zarrNumber] = self.IMG.width
+			self.data['height'][zarrNumber] = self.IMG.height
+			
+			for i in range(self.IMG.length):
+				img = self.IMG.get_image(i)
+				self.data['means'][zarrNumber][i] = np.mean(img)
 				self.data['length'][zarrNumber] = i
 				if self.data['means'][zarrNumber][i] == 0:
 					break
@@ -1062,14 +1270,19 @@ class globals:
 		self.data['focus'] = {}
 		
 		for zarrNumber in tqdm(self.allArrays):
-			img = self.loadZarrFile(zarrNumber)
-			self.data['focus'][zarrNumber] = np.zeros(img.shape[0])
+			if self.loadRunFile(zarrNumber):
+				return
+
+			length = self.data['length'][zarrNumber]
+			width = self.data['width'][zarrNumber]
+			height = self.data['height'][zarrNumber]
 			
-			width, height = img[0].shape
+			self.data['focus'][zarrNumber] = np.zeros(length)			
 			start_w, end_w, start_h, end_h = crop_to_center(width,height)
 			
-			for i in range(img.shape[0]):
-				image = np.array(img[i][start_w:end_w,start_h:end_h])
+			for i in range(length):
+				image = self.IMG.get_image(i)
+				image = image[start_w:end_w,start_h:end_h]
 				
 				vimage = image - np.mean(image)
 				vimage = 3.0 * vimage
@@ -1079,8 +1292,6 @@ class globals:
 				blurred_image = cv.GaussianBlur(vimage, (15,15), 0)
 				variance = cv.Laplacian(blurred_image, cv.CV_64F)
 				self.data['focus'][zarrNumber][i] = variance.var()
-				if self.data['means'][zarrNumber][i] == 0:
-					break
 		self.saveMetadata()
 		return True
 	
@@ -1089,53 +1300,42 @@ class globals:
 		print('Calculating Adjacent Image Differences For All Images')
 		self.data['difference'] = {}
 		for zarrNumber in tqdm(self.allArrays):
-			img = self.loadZarrFile(zarrNumber)
-			self.data['difference'][zarrNumber] = np.zeros(img.shape[0])
-			
-			width, height = img[0].shape
+			if self.loadRunFile(zarrNumber):
+				return
+
+			length = self.data['length'][zarrNumber]
+			width = self.data['width'][zarrNumber]
+			height = self.data['height'][zarrNumber]
+
+			self.data['difference'][zarrNumber] = np.zeros(length)
 			start_w, end_w, start_h, end_h = crop_to_center(width,height)	
 			
-			for i in range(img.shape[0]):
-				pImage = np.array(img[i-1][start_w:end_w,start_h:end_h])
-				image = np.array(img[i][start_w:end_w,start_h:end_h])
+			for i in range(length):
+				pImage = self.IMG.get_image(i-1)
+				pImage = pImage[start_w:end_w,start_h:end_h]
+				image = self.IMG.get_image(i)
+				image = image[start_w:end_w,start_h:end_h]
 				similarity_score, _ = ssim(image, pImage, full=True)
 				self.data['difference'][zarrNumber][i] = similarity_score
-				if self.data['means'][zarrNumber][i] == 0:
-					break
 		self.saveMetadata()
 		return True
-	
 
-	def calculate_histogram_for_all_data(self):
-		print('Calculating Histograms for all images')
-		self.data['histogram'] = {}
-		for zarrNumber in tqdm(self.allArrays):
-			img = self.loadZarrFile(zarrNumber)
-			self.data['histogram'][zarrNumber] = []
-			
-			for i in range(img.shape[0]):
-				self.data['histogram'][zarrNumber].append(image_histogram(img[i]))
-				if self.data['means'][zarrNumber][i] == 0:
-					break
-			self.data['histogram'][zarrNumber] = np.array(self.data['histogram'][zarrNumber])
-		
-		self.saveMetadata()
-		return True
 
 	def determine_pixel_dimensions_for_all_images(self):
 		self.data['width'] = {}
 		self.data['height'] = {}
 		for zarrNumber in self.allArrays:
-			img = self.loadZarrFile(zarrNumber)
-			self.data['width'][zarrNumber] = img.shape[1]
-			self.data['height'][zarrNumber] = img.shape[2]
+			if self.loadRunFile(zarrNumber):
+				return
+			self.data['width'][zarrNumber] = self.IMG.width
+			self.data['height'][zarrNumber] = self.IMG.height
 		self.saveMetadata()
 		return True
 
 
 	def rewrite_data_survey_file_and_write_survey_images(self):
 		print('Writing Log File and saving a selection of images from all zarr acquisitions')
-		path = self.metaPath + "/quality.csv"
+		path = self.surveyPath + "/quality.csv"
 		logFILE = open(path,'w')
 		
 		now = datetime.now()
@@ -1155,7 +1355,6 @@ class globals:
 			for tag in dataQualtyCheck:
 				logFILE.write(self.prepareDataForSurvey(dataQualtyCheck[tag],zarrNumber) + ',')
 			logFILE.write('\n')
-			self.save_averaged_histograms(zarrNumber,self.data['histogram'][zarrNumber])
 			self.saveSurveyImage(zarrNumber)
 		logFILE.close()
 	
@@ -1193,113 +1392,121 @@ class globals:
 		plt.savefig(self.surveyPath + f'histogram_{zarrNumber}.png')
 		plt.close()
 
-	def save_individual_histograms(self,path,hist,index):
+	def save_individual_histograms(self,path,hist,index=None):
 		hist[0] = 0
 		hist[4050:-1] = 0
 		x = np.arange(4096)
 		plt.figure(figsize=(10, 6))
 		plt.plot(x, hist)  # bin_edges has one extra element
-		plt.title(f"Histogram of Pixel Intensities for Acq #{index}")
+		
 		plt.xlabel("Pixel Intensity")
 		plt.ylabel("Frequency")
-		plt.savefig(path + f'histogram_{index}.png')
+		
+		if index is not None:
+			plt.title(f"Histogram of Pixel Intensities for Run #{index}")
+			plt.savefig(path + f'histogram_{index}.png')
+		else:
+			plt.title(f"Histogram of Pixel Intensities")
+			plt.savefig(path + f'histogram.png')
+			
 		plt.close()
 	
 	
 	def saveSurveyImage(self,zarrNumber):
-		img = self.loadZarrFile(zarrNumber)
+		if self.loadRunFile(zarrNumber):
+			return
+		
 		index = int(self.data['length'][zarrNumber]) -1
-		image = np.array(img[index])
+		image = self.IMG.get_image(index,bitRate=8)
+		cv.imwrite(self.surveyPath + f"example_{zarrNumber}_last.png",image)
 		
-		cv.imwrite(self.surveyPath + f"example_{zarrNumber}_last.png",image/16)
-		
-		image = np.array(img[0])
-		cv.imwrite(self.surveyPath + f"example_{zarrNumber}_first.png",image/16)
+		image = self.IMG.get_image(0,bitRate=8)
+		cv.imwrite(self.surveyPath + f"example_{zarrNumber}_first.png",image)
 	
 	
-	def create_flythrough_video_for_data_visualization(self):
+	def flythrough_create(self):
 		self.tmpPath = self.moviePath + '/tmp/'
-		flythroughs = self.determine_number_of_flythroughs_to_make()
-		
-		for fly in tqdm(flythroughs):
-			path = self.moviePath + f'flythrough_{fly}.mp4'
-			if os.path.isfile(path):continue
-			FlyArrays = flythroughs[fly]
-			replace_directory(self.tmpPath)
-			counter = 0
-			for zarrNumber in FlyArrays:
-				img = self.loadZarrFile(zarrNumber)
-				
-				for i in range(self.data['length'][zarrNumber]+1):
-					self.write_tmp_image(img[i],i,counter,zarrNumber)
-					counter += 1
-			self.compile_pngs_to_movie(fly)
-			remove_directory(self.tmpPath)
-	
-	def create_final_flythrough_video_for_data_visualization(self,gridline = False):
-		if gridline:
-			path = self.moviePath + 'grid_flythrough.mp4'
-		else:
-			path = self.moviePath + 'raw_flythrough.mp4'
-		self.tmpPath = self.moviePath + 'tmp/'
 		replace_directory(self.tmpPath)
-		
-		if os.path.isfile(path):
-			os.remove(path)
-		for i in range(self.zimg.shape[0]):
-			self.write_tmp_image(self.zimg[i],i,i,grid=gridline)
-		self.compile_pngs_to_movie()
+		self.flythrough_generate_images()
+		self.flythrough_compile_pngs_to_movie(f"Stage_{self.stage}")
 		remove_directory(self.tmpPath)
 	
+	def flythrough_generate_images(self):
+		if self.stage == 1:
+			self.flythrough_compile_runs_stage_1()
+		else:
+			self.flythrough_compile_runs_later()
 	
-	def write_tmp_image(self,image,i,counter,zarrNumber='',grid=False):
-		image = np.array(image)
-		image = image / 16
-		resolution = (int(image.shape[1] / fly_scale), int(image.shape[0] / fly_scale))
-		image = cv.resize(image, resolution, interpolation= cv.INTER_LINEAR)
+	
+	def flythrough_determine_max_dim_of_runs(self):
+		width = 0
+		height = 0
+		for zarrNumber in self.allArrays:
+			if self.data['width'][zarrNumber] > width:
+				width = self.data['width'][zarrNumber]
+			if self.data['height'][zarrNumber] > height:
+				height = self.data['height'][zarrNumber]
+		return width, height
+	
+	def flythrough_compile_runs_stage_1(self):
+		width, height = self.flythrough_determine_max_dim_of_runs()
+		counter = 0
+		for zarrNumber in tqdm(self.allArrays):
+			if self.loadRunFile(zarrNumber):
+				return
+			length = self.data['length'][zarrNumber]
+			for i in range(length):
+				image = self.IMG.get_image(i,width, height,8)
+				self.flythrough_write_tmp_image(image,i,counter,zarrNumber)
+				counter += 1
+	
+	def flythrough_compile_runs_later(self):
+		if self.stage == 2:
+			zName = 'compiledData'
+		elif self.stage == 3:
+			zName = self.fname
+		elif self.stage == 4:
+			zName = self.fname + "_process"
+		else:
+			print("Stage is not set correctly, no flythrough generated...")
+			return
+		if self.loadZarrFile(zName):
+			return
 		
-		if grid:
-			image = overlay_grid_lines_on_image(image,self.cmdInputs['-fg']['variable'][0] // fly_scale)
+		length = self.IMG.length
+		for i in range(length):
+			image = self.IMG.get_image(i,bitRate = 8)
+			self.flythrough_write_tmp_image(image,i,i)
+		
+	
+	def flythrough_write_tmp_image(self,image,i,counter,zarrNumber=''):
+		if self.stage == 1:
+			image = overlay_image_attr_on_image(image,self.data['means'][zarrNumber][i],self.data['focus'][zarrNumber][i],self.data['difference'][zarrNumber][i])
 		image = overlay_acu_and_index_number_on_image(image,zarrNumber,i)
 		image = overlay_scalebar_on_image(image)
 		image = overlay_header_on_image(image,self.fname)
-		
-		if self.cmdInputs['-s']['active']:
-			image = overlay_image_attr_on_image(image,self.data['means'][zarrNumber][i],self.data['focus'][zarrNumber][i],self.data['difference'][zarrNumber][i])
-		
-		
-		
+		if self.stage == 2:
+			spacing = self.cmdInputs['-f']['variable'][0]
+			image = overlay_grid_lines_on_image(image,spacing)
+
+		resolution = (int(image.shape[1] / fly_scale), int(image.shape[0] / fly_scale))
+		image = cv.resize(image, resolution, interpolation= cv.INTER_LINEAR)
+
 		c = format_image_number_to_10000(counter)
 		cv.imwrite(self.tmpPath + f"image_{c}.png",image)
-		
 
-
-	def determine_number_of_flythroughs_to_make(self):
-		flythrough_number = 0
-		flyThroughRuns = {}
-		width = 0
-		height = 0
-		flyThroughRuns[flythrough_number] = []
-		
-		for zarrNumber in self.allArrays:
-			if len(flyThroughRuns[flythrough_number]) == 0 or (width == self.data['width'][zarrNumber] and height == self.data['height'][zarrNumber]):
-				flyThroughRuns[flythrough_number].append(zarrNumber)
-			else:
-				flythrough_number += 1
-				flyThroughRuns[flythrough_number] = []
-				flyThroughRuns[flythrough_number].append(zarrNumber)
-			width = self.data['width'][zarrNumber]
-			height = self.data['height'][zarrNumber]
-		return flyThroughRuns
+	def flythrough_compile_pngs_to_movie(self,mName="raw_flythrough"):
+		cmd = f'ffmpeg -framerate 10 -i {self.tmpPath}image_%04d.png -c:v libx264 -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2" -r 30 -y -pix_fmt yuv420p {self.moviePath}{mName}.mp4'
+		stream = os.popen(cmd)
+		output = stream.read()	
 	
 	def save_inidividual_curves(self):
 		self.write_curve_file('difference')
 		self.write_curve_file('means')
 		self.write_curve_file('focus')
-		
 	
 	def write_curve_file(self,name):
-		curvesFile = open(self.metaPath + name + ".csv", 'w')
+		curvesFile = open(self.surveyPath + name + ".csv", 'w')
 		length = 0
 		
 		
@@ -1320,28 +1527,25 @@ class globals:
 			curvesFile.write('\n')
 		curvesFile.close()
 	
-	def compile_pngs_to_movie(self,runNumber=""):
-		if runNumber == "":
-			mName = 'raw_flythrough'
-		else:
-			mName = f'flythrough_{runNumber}'
-		cmd = f'ffmpeg -framerate 10 -i {self.tmpPath}image_%04d.png -c:v libx264 -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2" -r 30 -y -pix_fmt yuv420p {self.moviePath}{mName}.mp4'
-		stream = os.popen(cmd)
-		output = stream.read()
-		print(output)
 	
 	
 	#BEGIN COMPILING DATA HERE
 	def finish_data_preprocessing(self):
 		print("Gathering information about compiled acquisitions...")
-		self.data['acqQuality'] = self.cmdInputs['-c']['variable'][0]
-		
+		if 'stages' not in self.data or 'survey' not in self.data['stages']:
+			print("Data has not been surveyed, please run stage 1 before proceeding...")
+			return False
+
 		#Sort Acquisitions by Input
-		if len(self.allArrays) != len(self.data['acqQuality']):
+		self.data['runQuality'] = self.cmdInputs['-c']['variable'][0]		
+		if len(self.allArrays) != len(self.data['runQuality']):
 			print("Error: Acquisition Tags must be the same length as all Acquisition in raw zarr file. Please adjust input...")
-			return
+			return False
+
+		self.save_stage_info_in_data('compile')
+
 		if self.sort_all_arrays_by_quality():
-			return
+			return False
 		
 		#Salavge misaligned Acquisitions
 		if len(self.svgArray) > 0:
@@ -1351,21 +1555,17 @@ class globals:
 		if self.cmdInputs['-sk']['active']:
 			self.read_in_shifts()
 		else:
+			#CHANGE THIS LATER
+			self.read_in_shifts()
 			self.coregister_between_blocks()
+		
+		self.data['shift'] = self.shift
 		
 		self.compile_images_into_single_zarr()
 		
-#		#Check if Flythrough and write new flythrough
-		if self.cmdInputs['-f']['active'] or self.cmdInputs['-f']['active']:
-			print("Creating final flythrough of raw data...")
-			self.create_final_flythrough_video_for_data_visualization()
-		if self.cmdInputs['-fg']['active']:
-			print("Creating gridline flythrough of raw data...")
-			self.create_final_flythrough_video_for_data_visualization(True)
-		
-		self.data['shift'] = self.shift
-		self.data["stage2_flags"] = self.cmdInputs
+		self.data['stages']['compile']['end'] = get_time()
 		self.saveMetadata()
+		return True
 		
 
 	def sort_all_arrays_by_quality(self):
@@ -1377,13 +1577,13 @@ class globals:
 		n = len(self.allArrays)
 		
 		for i in range(n):
-			if self.data['acqQuality'][i] == 1:
+			if self.data['runQuality'][i] == 1:
 				self.useArray.append(self.allArrays[i])
-			elif self.data['acqQuality'][i] == 2:
+			elif self.data['runQuality'][i] == 2:
 				self.badArray.append(self.allArrays[i])
-			elif self.data['acqQuality'][i] == 3:
+			elif self.data['runQuality'][i] == 3:
 				self.ignArray.append(self.allArrays[i])
-			elif self.data['acqQuality'][i] == 4:
+			elif self.data['runQuality'][i] == 4:
 				self.svgArray.append(self.allArrays[i])
 			else:
 				print("Error: Acquisition Tags must be all integers between 1 and 4. Please adjust input...")
@@ -1407,7 +1607,7 @@ class globals:
 #		self.svgArray
 		pass
 		#Write Code to:
-		#1) input seed image, self.metaPath + '/align/image_X.png'
+		#1) input seed image, self.surveyPath + '/align/image_X.png'
 			#1A) Look for seed image
 			#1B) If not found will to last valid array, self.useArray
 			#1C If neither, throw error
@@ -1423,7 +1623,7 @@ class globals:
 		#Look to SR015-CR2-3 and SR015-CR2-2 for example data. You can find it on the Shoffstall NAS under source-data/SR015/<foldername>
 	
 	def read_in_shifts(self):
-		rawShifts = self.cmdInputs['-sk']['variable']
+		rawShifts = self.cmdInputs['-sk']['variable'][0]
 		n = len(self.useArray)
 		self.shift = {}
 		
@@ -1433,7 +1633,6 @@ class globals:
 				self.shift[zarrNumber] = np.array([rawShifts[2*i],rawShifts[2*i_1]])
 			except:
 				self.shift[zarrNumber] = np.array([0,0])
-		
 		self.clean_up_shift_array()
 		
 		self.width = 0
@@ -1453,78 +1652,8 @@ class globals:
 #		self.shift is of the form self.shift[run number] = np.array([x_shift,y_shift]). 
 #		This will assume Integer Shift
 #		Use the variable self.oldPath to look for masks.
-
-		self.shift = {}
-		
-		#Feel Free to Delete Everything After this
-		
-		
-		self.width = 0
-		self.height = 0
-		self.length = 0
-		for zarrNumber in self.useArray:
-			if self.width < self.data['width'][zarrNumber]:
-				self.width = self.data['width'][zarrNumber]
-			if self.height < self.data['height'][zarrNumber]:
-				self.height = self.data['height'][zarrNumber]
-			self.length += self.data['length'][zarrNumber]
-		
-		print(self.width,self.height)		
-
-		for zarrNumber in self.useArray:
-			if self.width == self.data['width'][zarrNumber] and self.height == self.data['height'][zarrNumber]:
-				starting_zarr = zarrNumber
-				break
-		
-		start_pos = "Start"
-		if starting_zarr != self.useArray[0]:
-			zarrNumber = self.useArray[-1]
-			if self.width == self.data['width'][zarrNumber] and self.height == self.data['height'][zarrNumber]:
-				start_pos = "End"
-				starting_zarr = zarrNumber
-			else:
-				start_pos = "Middle"
-		
-		self.shift[starting_zarr] = np.array([0,0])
-		
-		INDEX = self.useArray.index(starting_zarr)
-		
-		
-		if start_pos == "Start":
-			self.coregister_forward_from_index(INDEX)
-		elif start_pos == "Middle":
-			self.coregister_forward_from_index(INDEX)
-			self.coregister_backward_from_index(INDEX)
-		elif start_pos == "End":
-			self.coregister_backward_from_index(INDEX)
-		
-		self.clean_up_shift_array()
-		
-		arrMin_x = 0
-		arrMax_x = 0
-		arrMin_y = 0
-		arrMax_y = 0
-		for zarrNumber in self.useArray:
-			if self.shift[zarrNumber][0] < arrMin_x:
-				arrMin_x = self.shift[zarrNumber][0]
-			elif self.shift[zarrNumber][0] > arrMax_x:
-				arrMax_x = self.shift[zarrNumber][0]
-			if self.shift[zarrNumber][1] < arrMin_y:
-				arrMin_y = self.shift[zarrNumber][1]
-			elif self.shift[zarrNumber][1] > arrMax_y:
-				arrMax_y = self.shift[zarrNumber][1]
-		
-		self.width = self.width + arrMax_x - arrMin_x
-		self.height = self.height + arrMax_y - arrMin_y
-		
-		arrShift = np.array([-arrMin_x,-arrMin_y])
-		for zarrNumber in self.useArray:
-			self.shift[zarrNumber] += arrShift
-		
-		if self.width % 2 != 0:
-			self.width += 1
-		if self.height % 2 != 0:
-			self.height += 1
+#		self.shift = {}
+		pass
 		
 	def clean_up_shift_array(self):
 		n = len(self.useArray)
@@ -1564,8 +1693,8 @@ class globals:
 			offset_1 = self.data['length'][zarrNumber_1]
 			offset_2 = 0
 		
-		zimg1 = np.array(self.loadZarrFile(zarrNumber_1)[offset_1])
-		zimg2 = np.array(self.loadZarrFile(zarrNumber_2)[offset_2])
+		zimg1 = np.array(self.loadRunFile(zarrNumber_1)[offset_1])
+		zimg2 = np.array(self.loadRunFile(zarrNumber_2)[offset_2])
 		
 		cv.imwrite(f'./{zarrNumber_2}_img1.png',zimg1//16)
 		cv.imwrite(f'./{zarrNumber_2}_img2.png',zimg2//16)
@@ -1577,7 +1706,6 @@ class globals:
 	def compile_images_into_single_zarr(self):
 		index = 0
 		for zarrNumber in tqdm(self.useArray):
-			zimg = self.loadZarrFile(zarrNumber)
 			z = self.data['length'][zarrNumber]
 			for i in range(z):
 				MEAN = self.data['means'][zarrNumber][i]
@@ -1590,10 +1718,12 @@ class globals:
 				if MEAN > 0 and FOCUS > self.cmdInputs['-of']['variable'][0] and SSIM > self.cmdInputs['-os']['variable'][0] and SSIM < self.cmdInputs['-os']['variable'][1] and pSSIM < self.cmdInputs['-os']['variable'][1]:
 					index += 1
 
-		self.zimg = create_zarr_file(self.imgPath,f"rawData",self.width,self.height,index)
+		self.zimg = imageCreator(self.imgPath,"compiledData",index,self.width,self.height)
+		
 		index = 0
 		for zarrNumber in tqdm(self.useArray):
-			zimg = self.loadZarrFile(zarrNumber)
+			if self.loadRunFile(zarrNumber):
+				return
 			z = self.data['length'][zarrNumber]
 			for i in range(z):
 				MEAN = self.data['means'][zarrNumber][i]
@@ -1604,15 +1734,361 @@ class globals:
 				except:
 					pSSIM = int(10000 * (1 - self.data['difference'][zarrNumber][i]))
 				if MEAN > 0 and FOCUS > self.cmdInputs['-of']['variable'][0] and SSIM > self.cmdInputs['-os']['variable'][0] and SSIM < self.cmdInputs['-os']['variable'][1] and pSSIM < self.cmdInputs['-os']['variable'][1]:
-					self.zimg[index] = self.preprocess(zimg[i],self.shift[zarrNumber])
+					image = self.IMG.preprocess(i,self.shift[zarrNumber],self.width,self.height)
+					self.zimg.add_image(image,index)
 					index += 1
+	
+	
+	def histogram_map_and_crop(self):
+		#STAGE 3 match histograms and crop data
+		print("Cropping Image and Setting Metadata...")
+		if len(self.cmdInputs['-fi']['variable'][0]) != 4:
+			print("Error, enter correct crop points...")
+			return False
+
+		if 'stages' not in self.data or 'survey' not in self.data['stages']:
+			print("Data has not been surveyed, please run stage 1 before proceeding...")
+			return False
+		if 'compile' not in self.data['stages']:
+			print("Data has not been compiled, please run stage 2 before proceeding...")
+			return False
+		
+		zpath = self.imgPath + 'compiledData.zarr'
+		if not os.path.isdir(zpath):
+			print("Zarr file from stage 2 missing or corrupted, please rerun stage 2 before proceeding...")
+			return False
+		
+		self.save_stage_info_in_data('finish')		
+		self.loadZarrFile('compiledData')
+
+		self.get_crop_points()
+		self.finish_images()
+		self.save_histogram()
+		
+		self.data['stages']['finish']['end'] = get_time()
+		self.saveMetadata()
+#		remove_directory(zpath)
+		return True
+	
+	def get_crop_points(self):
+		self.data['crop_points'] = self.cmdInputs['-fi']['variable'][0]
+		self.cropMin_x = self.data['crop_points'][0]
+		self.cropMax_x = self.data['crop_points'][1]
+		self.cropMin_y = self.data['crop_points'][2]
+		self.cropMax_y = self.data['crop_points'][3]
 		
 		
+		if self.cropMax_x != -1:
+			self.IMG.width = self.cropMax_x - self.cropMin_x
+		else:
+			self.IMG.width = self.IMG.shape[1]
+		if self.cropMax_y != -1:
+			self.IMG.height = self.cropMax_y - self.cropMin_y
+		else:
+			self.IMG.height = self.IMG.shape[2]
+		
+		index = self.IMG.length
+		self.zimg = imageCreator(self.imgPath,self.fname,index,self.IMG.width,self.IMG.height)
+	
+	def finish_images(self):
+		length = self.IMG.length
+		self.histograms = np.zeros((length,byteDeapth))
+		
+		for i in range(length):
+			image = self.IMG.finisher(i, self.cropMin_x, self.cropMax_x, self.cropMin_y, self.cropMax_y)
+			self.histograms[i] = image_histogram(image)
+			self.zimg.add_image(image,i)
+		self.data['histogram'] = self.histograms
+		self.data['mean'] = self.IMG.mean
+		self.data['cropped_means'] = self.IMG.means
+
+	def save_histogram(self):
+		self.histogram = np.mean(self.histograms,axis=0)
+		self.histogram[0:100] = 0
+		self.histogram[4050:-1] = 0
+		self.save_individual_histograms(self.imgPath,self.histogram)
+		
+	
+	def process_all_images(self):
+		if 'stages' not in self.data or 'survey' not in self.data['stages']:
+			print("Data has not been surveyed, please run stage 1 before proceeding...")
+			return False
+		if 'compile' not in self.data['stages']:
+			print("Data has not been compiled, please run stage 2 before proceeding...")
+			print(data['stages'])
+			return False
+		if 'finish' not in self.data['stages']:
+			print("Data has not been finalized, please run stage 3 before proceeding...")
+			return False
+
+		zpath = self.imgPath + self.fname + '.zarr'
+		z2path = self.imgPath + 'compiledData.zarr'
+		if not os.path.isdir(zpath) and not os.path.isdir(z2path):
+			print("Zarr file from stage 2 missing or corrupted, please rerun stage 2 and stage 3 before proceeding...")
+			return
+		if not os.path.isdir(zpath) and os.path.isdir(z2path):
+			print("Zarr file from stage 3 missing or corrupted, please rerun stage 3 before proceeding...")
+			return
+		
+		self.save_stage_info_in_data('post-process')
+		self.loadZarrFile(self.fname)
+		
+		self.IMG.mean = self.data['mean']
+		self.IMG.post_processing_windowing_set(self.cmdInputs['-p']['variable'][1],self.cmdInputs['-p']['variable'][2])
+		self.length = self.IMG.length
+		self.height = self.IMG.height
+		self.width = self.IMG.width
+		
+		for m in modality_type:
+			tag = modality_type[m]['tag']
+			if self.cmdInputs[tag]['active']:
+				kernel = self.cmdInputs[tag]['variable'][0]
+			else:
+				kernel = modality_type[m]['kernel']
+			
+			mType = modality_type[m]['name']
+			morph = modality_type[m]['morph']
+			self.IMG.post_processing_morphology_set(kernel,mType,morph)
+		
+		self.IMG.post_processing_erosion_dilation_set(self.cmdInputs['-e']['variable'][0],self.cmdInputs['-d']['variable'][0])
+		
+		self.IMG.post_processing_commands(self.cmdInputs['-p']['variable'][0])
+
+		if self.cmdInputs['-png']['active']:
+			replace_directory(self.pngPath)
+			self.zimg = imageCreator(self.pngPath,self.fname + "_process",self.length,self.width,self.height,'png')
+			index = self.cmdInputs['-png']['variable'][0]
+			bit = '8b'
+		else:
+			bit = self.cmdInputs['-bit']['variable'][0]
+			if bit != '12b' and bit != '8b':
+				print(F"Unrecognized Bit Rate, {bit}, saving as 12-bit data...")
+				bit = '12b'
+			self.zimg = imageCreator(self.imgPath,self.fname + "_process",self.length,self.width,self.height,bit)
+			index = -1
+		
+		if index > -1:
+			image = self.IMG.post_processing(index,bit)
+			self.zimg.add_image(image,index)
+			self.data['stages']['post-process']['end'] = get_time()
+			self.saveMetadata()
+			return
+		
+		for i in tqdm(range(self.length)):
+			image = self.IMG.post_processing(i,bit)
+			self.zimg.add_image(image,i)
+			
+		self.data['post-process-commands'] = self.IMG.commands
+		self.data['stages']['post-process']['end'] = get_time()
+		self.saveMetadata()
+		return True
+		
+
+
+class imageCreator():
+	def __init__(self,outpath,fname,length,width,height,otype="12b"):
+		self.outPath = outpath
+		self.fname = fname
+		self.type = otype
+		self.width = width
+		self.height = height
+		self.length = length
+		self.failed = True
+		
+		self.types = ["12b","8b","png"]
+		
+		if self.type not in self.types:
+			return
+		
+		if self.type != 'png':
+			self.zIMG = create_zarr_file(self.outPath,self.fname,self.width,self.height,self.length)
+		self.failed = False
+		
+	def add_image(self,image,index,itype="12b"):
+		if index >= self.length or self.width != image.shape[0] or self.height != image.shape[1]:
+			print(f"Image failed to write, this image has dimensions {image.shape[0]}, {image.shape[1]}, and they must be the same as the output zarr {self.width}, {self.height}")
+			return True
+
+		if itype != self.type and self.type != 'png':
+			if itype == "8b" and self.type == "12b":
+				image = image * 16
+			elif itype == "12b":
+				image = image // 16
+		
+		if self.type != 'png':
+			self.zIMG[index] = image
+		elif self.type == 'png':
+			c = format_image_number_to_10000(index)
+			cv.imwrite(self.outPath + f"_{c}.png",image)
+		return False
+		
+
+
+class imageViewer():
+	def __init__(self,inpath,acq=False):
+		self.inPath = inpath
+		self.acq = acq
+		self.failed = True
+		
+		if not self.inPath.endswith('.zarr'):
+			return
+		
+		self.loadZarrFile()
+		
+		if self.zIMG is None:
+			return
+
+		self.length = self.zIMG.shape[0]
+		self.width = self.zIMG.shape[1]
+		self.height = self.zIMG.shape[2]
+		
+		self.failed = False
+		
+		return
+
+	
+	def get_image(self,index,width = 0,height = 0,bitRate=12):
+		image = np.array(self.zIMG[index])
+		
+		if bitRate == 8:
+			image = image // 16
+		
+		if width == 0 and height == 0:
+			return image
+		
+		if width == self.width and height == self.height:
+			return image
+		
+		if width < self.width:
+			start,end = get_crop_points_to_center(width,self.width)
+			image = image[start:end]
+		elif width > self.width:
+			newImage = np.zeros((width,image.shape[2]))
+			start,end = get_crop_points_to_center(self.width,width)
+			newImage[start:end] = image
+			image = newImage
+		
+		if height < self.height:
+			start,end = get_crop_points_to_center(height,self.height)
+			image = image[:,start:end]
+		elif height > self.height:
+			newImage = np.zeros((image.shape[1],height))
+			start,end = get_crop_points_to_center(self.height,height)
+			newImage[:,start:end] = image
+			image = newImage
 		
 		
-	def preprocess(self,image,shift):
+		return image
+	
+	def get_crop_points_to_center(self,small,large):
+		diff = (large - small) // 2
+		start = diff
+		end = large - diff
+		return start,end
+	
+	def get_mean_baseline(self,cropMin_x,cropMax_x,cropMin_y,cropMax_y):
+		self.mean = 0
+		self.means = np.zeros(self.length)
+		
+		for i in range(self.length):
+			image = self.get_image(i)
+			image = image.astype("uint16")
+			image = image[cropMin_x:cropMax_x,cropMin_y:cropMax_y]
+			self.mean += self.find_max_intensity_value_of_image(image,i)
+		self.mean = self.mean // self.length
+	
+	def find_smoothed_histogram_signal_of_image(self,image):
+		histogram = image_histogram(image)
+		smooth_signal = savgol_filter(histogram, 50, 2)
+		smooth_signal[0:100] = 0
+		smooth_signal[4050:-1] = 0
+		return smooth_signal
+	
+	def find_max_intensity_value_of_image(self,image,index):
+		curve = self.find_smoothed_histogram_signal_of_image(image)
+		maxMean = np.argmax(curve)
+		self.means[index] = maxMean
+		return maxMean
+	
+	def finisher(self,index, cropMin_x, cropMax_x, cropMin_y, cropMax_y):
+		if not hasattr(self, 'mean') or self.mean == 0:
+			self.get_mean_baseline(cropMin_x,cropMax_x,cropMin_y,cropMax_y)
+		image = self.get_image(index)
+		image = image[cropMin_x:cropMax_x,cropMin_y:cropMax_y]
+		image = image.astype('float')
+		image[image != 0] -= self.means[index]
+#		image[image != 0] += self.mean
+		image += self.mean
+		image = np.clip(image,0,byte_depth-1)
+		image = image.astype("uint16")
+		return image 
+	
+	def loadZarrFile(self):
+		if self.acq:
+			self.zIMG = get_image_from_zarr_as_dask_array(self.inPath)
+		else:
+			self.zIMG = da.from_zarr(self.inPath, component="data/0/")
+	
+	def post_processing(self,index,itype):
+		image = self.get_image(index)
+		image = image.astype('float')
+		
+		mode = {}
+		for cmd in self.commands:
+			mode[cmd] = getattr(self,cmd)(image)
+		
+		pImage = image + 0
+		for cmd in self.commands:
+			if self.commands[cmd] == 0:
+				pImage -= mode[cmd]
+			elif self.commands[cmd] == 1:
+				pImage += mode[cmd]
+			elif self.commands[cmd] == 2:
+				pImage = mode[cmd]
+		
+		pImage = np.clip(pImage,0,byteDeapth-1)
+		pImage = self.windowing(pImage)
+		pImage = pImage.astype("uint16")
+		if itype == '8b':
+			pImage = pImage // 16
+			pImage = pImage.astype("uint8")
+		
+		return pImage
+	
+	def post_processing_commands(self,cmd):
+		self.commands = {}
+		if len(cmd) == 0:
+			print("Require processing commands to properly process data, please input commands unless windowing is all that is required")
+		
+		for c in cmd:
+			C = c.split('_')[0]
+			ADD = int(c.split('_')[1])
+			if C in postprocessCMD:
+				self.commands[C] = ADD
+			else:
+				print(f"Command {C} is not a valid post processing command, please input only valid commands...")
+				return False
+		return True
+	
+	def post_processing_morphology_set(self,kernel,mType,morph):
+		if morph is not None:
+			setattr(self, mType, cv.getStructuringElement(cv.MORPH_ELLIPSE,(kernel,kernel)))
+		else:
+			setattr(self, mType, kernel)
+		
+	def post_processing_erosion_dilation_set(self,erode,dilate):
+		self.erode = cv.getStructuringElement(cv.MORPH_ELLIPSE,(erode,erode))
+		self.dilate = cv.getStructuringElement(cv.MORPH_ELLIPSE,(dilate,dilate))
+	
+	def post_processing_windowing_set(self,windowMin,windowMax):
+		self.windowHalf = (windowMax - windowMin) // 2
+		self.windowMid = windowMin + self.windowHalf
+		self.windowContrast = float(byteDeapth) / (2 * float(self.windowHalf))
+	
+	
+	def preprocess(self,index,shift,width,height):
 		#Add code in here to check if the image is actually useable and return none if not
-		image = np.array(image)
+		image = self.get_image(index)
 		
 		histogram = image_histogram(image)
 		smooth_signal = savgol_filter(histogram, 50, 2)
@@ -1622,17 +2098,11 @@ class globals:
 		darkpeak = np.argmax(smooth_signal)
 		
 		image = image.astype(float)
-		
-#		image[image != 0] -= int(mean)
-#		image[image != 0] += self.mean
-		image = np.clip(image,0,byte_depth-1)
-		
-		
-		image = self.add_shifted_arrays(image, shift)
+		image = self.preprocess_add_shifted_arrays(image, shift,width,height)
 		return image
-	
-	def add_shifted_arrays(self,image, shift):
-		result = np.zeros((self.width,self.height))
+
+	def preprocess_add_shifted_arrays(self,image, shift,width,height):
+		result = np.zeros((width,height))
 		
 		xStart = shift[0]
 		yStart = shift[1]
@@ -1641,308 +2111,61 @@ class globals:
 		
 		result[xStart:xEnd,yStart:yEnd] += image
 		return result
+#	QUAN FUNCTIONS
+	def GUI_load_image(index,bit):
+		self.display = self.get_image(index,bitRate=bit)
+		
+	def GUI_change_image(cmd,add):
+		self.display = getattr(self,cmd)(self.display,add)
+	
+	def GUI_set_paramater(cmd,kernal_size):
+		mTYpe = modality_type[cmd]['name']
+		morph = modality_type[cmd]['morph']
+		self.post_processing_morphology_set(kernal_size,mType,morph)
+	
+	def GUI_window_image(minI, maxI):
+		self.post_processing_windowing_set(minI,maxI)
+		self.display = self.windowing(image)
 
 	
-	def histogram_map_and_crop(self):
-		#STAGE 3 match histograms and crop data
-		print("Cropping Image and Setting Metadata...")
-		if len(self.cmdInputs['-fi']['variable'][0]) != 4:
-			print("Error, enter correct crop points...")
-			return
+	#ADD ALL POSTPROCESSING FUNCTIONS HERE
+	
+	def dialation(self,image):
+		return cv.dilate(image,self.dilate,iterations = 1)
 
-		self.loadFinishedZarr()
-		
-		self.data['crop_points'] = self.cmdInputs['-fi']['variable'][0]
-		self.get_crop_points()
-		self.histogram = np.zeros(byteDeapth)
-		self.crop_image()
-		self.adjust_mean_peak()
-		self.zimg = self.finalIMG
-		
-		self.save_individual_histograms(self.imgPath,self.histogram,0)
-		self.data["stage3_flags"] = self.cmdInputs
-		self.saveMetadata()
+	def erosion(self,image):
+		return cv.erode(image,self.erode,iterations = 1)
 
-#		#Check if Flythrough and write new flythrough
-		if self.cmdInputs['-f']['active'] or self.cmdInputs['-f']['active']:
-			print("Creating final flythrough of raw data...")
-			self.create_final_flythrough_video_for_data_visualization()
-		
-		
-	def get_crop_points(self):
-		self.cropMin_x = self.data['crop_points'][0]
-		self.cropMax_x = self.data['crop_points'][1]
-		self.cropMin_y = self.data['crop_points'][2]
-		self.cropMax_y = self.data['crop_points'][3]
-		
-		
-		if self.cropMax_x != -1:
-			self.width = self.cropMax_x - self.cropMin_x
-		else:
-			self.width = self.zimg.shape[1]
-		if self.cropMax_y != -1:
-			self.height = self.cropMax_y - self.cropMin_y
-		else:
-			self.height = self.zimg.shape[2]
-		
-		index = self.zimg.shape[0]
-		self.finalIMG = create_zarr_file(self.imgPath,self.fname,self.width,self.height,index)
-	
-	
-	def loadFinishedZarr(self,fileName = 'rawData'):
-		zpath = self.imgPath + f'{fileName}.zarr'
-		try:
-			self.zimg = da.from_zarr(zpath, component="data/0/")
-		except:
-			print("Opening Image failed...")
-			self.zimg = None
+	def open(self,image):
+		return cv.morphologyEx(image, cv.MORPH_OPEN, self.opening)
 
-	def crop_image(self):
-		self.mean = 0
-		index = self.zimg.shape[0]
-		for i in tqdm(range(index)):
-			image = np.array(self.zimg[i]).astype("uint16")
-			image = image[self.cropMin_x:self.cropMax_x,self.cropMin_y:self.cropMax_y]
-			self.mean += self.find_max_intensity_value_of_image(image)
-			self.finalIMG[i] = image
-		self.histogram = self.histogram // index
-		self.mean = self.mean // index
+	def close(self,image):
+		return cv.morphologyEx(image, cv.MORPH_CLOSE, self.closing)
 	
-	def find_smoothed_histogram_signal_of_image(self,image):
-		histogram = image_histogram(image)
-		try:
-			self.histogram += histogram
-		except:
-			pass
-		smooth_signal = savgol_filter(histogram, 50, 2)
-		smooth_signal[0:100] = 0
-		smooth_signal[4050:-1] = 0
-		return smooth_signal
-	
-	def find_max_intensity_value_of_image(self,image):
-		curve = self.find_smoothed_histogram_signal_of_image(image)
-		return np.argmax(curve)
-	
-	def adjust_mean_peak(self):
-		index = self.zimg.shape[0]
-		for i in tqdm(range(index)):
-			self.finalIMG[i] = self.baseline_adjust_image(self.finalIMG[i])
-	
-	def baseline_adjust_image(self,image):
-		mean = self.find_max_intensity_value_of_image(image)
-		image = image.astype(float)
-		image += self.mean - mean
-		image = image.astype('uint16')
-		return image
-	
-	def crop_and_match_hisograms(self):
-		index = self.zimg.shape[0]
-		matchIMG = np.array(self.finalIMG[0]).astype("uint16")
-		histPath = self.metaPath + '/histogram/'
-		replace_directory(histPath)
-		
-		for i in tqdm(range(index)):
-			image = np.array(self.finalIMG[i]).astype("uint16")
-			image = self.find_histogram_of_image(image,histPath,i)
-			self.finalIMG[i] = image
-	
-	def find_constast_and_mean_numbers(self):
-		lowerPeak = []
-		upperPeak = []
-		index = self.zimg.shape[0]
-		for i in tqdm(range(index)):
-			image = np.array(self.zimg[i]).astype(float)
-			
-			
-			
-			histogram = image_histogram(image)
-			
-			
-			smooth_signal = savgol_filter(histogram, 50, 2)
-			smooth_signal[0:100] = 0
-			smooth_signal[4050:-1] = 0
-			lowerPeak.append(np.argmax(smooth_signal))
-			upperPeak.append(np.argmax(smooth_signal[lowerPeak[-1]+200:]))
-		lowerPeak = np.array(lowerPeak)
-		upperPeak = np.array(upperPeak)
-		
-		mean = np.mean(lowerPeak)
-		contrast = np.mean(upperPeak - lowerPeak)
-		
-		print(mean,contrast)
-	
-	
-		
-	
-	def find_histogram_of_image(self,image,histPath,index):
-		histogram = image_histogram(image)
-		smooth_signal = savgol_filter(histogram, 50, 2)
-		smooth_signal[0:100] = 0
-		smooth_signal[4050:-1] = 0
-		
-		darkpeak = np.argmax(smooth_signal)
-		peakWidth = calculate_fwhm(smooth_signal[darkpeak-150:darkpeak+150])
-		contrasting = 200.0 / float(peakWidth)
-		
-		image = np.array(image).astype(float)
-		image = image - darkpeak
-		image = contrasting * image
-		image = image + 1000
+	def gradient(self,image):
+		return cv.morphologyEx(image, cv.MORPH_GRADIENT, self.grad)
 
+	def tophat(self,image):
+		return cv.morphologyEx(image, cv.MORPH_TOPHAT, self.bhat)
 
-
-		histogram = image_histogram(image)
-		smooth_signal = savgol_filter(histogram, 50, 2)
-		smooth_signal[0:100] = 0
-		smooth_signal[4050:-1] = 0
-		self.save_individual_histograms(histPath,smooth_signal,index)
-		
+	def blackhat(self,image):
+		return cv.morphologyEx(image, cv.MORPH_BLACKHAT, self.bhat)
+	
+	def windowing(self, image):
+		image -= self.windowMid
+		image *= self.windowContrast
+		image += byteDeapth // 2
+		image = np.clip(image,0,byteDeapth-1)
 		return image
 		
 		
-	
-	
-	
-	def process_all_images(self):
-		self.loadFinishedZarr(self.fname)
-		image = np.array(self.zimg[0])
-		self.mean = self.find_max_intensity_value_of_image(image)
-		self.width = self.zimg.shape[1]
-		self.height = self.zimg.shape[2]
 		
-		if self.cmdInputs['-w']['active']:
-			self.windowMin = self.cmdInputs['-w']['variable'][0]
-			self.windowMax = self.cmdInputs['-w']['variable'][1]
-			self.windowHalf = (self.windowMax - self.windowMin) // 2
-			self.windowMid = self.windowMin + self.windowHalf
-			self.windowContrast = byteDeapth // (2 * self.windowHalf)
-		
-		if self.cmdInputs['-bt']['active']:
-			elipse_size = self.cmdInputs['-bt']['variable'][0]
-			self.kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(elipse_size,elipse_size))
 
-		if self.cmdInputs['-d']['active']:
-			dilate_size = self.cmdInputs['-d']['variable'][0]
-			self.dilate = cv.getStructuringElement(cv.MORPH_ELLIPSE,(dilate_size,dilate_size))
-			
-		if self.cmdInputs['-e']['active']:
-			erode_size = self.cmdInputs['-e']['variable'][0]
-			self.erode = cv.getStructuringElement(cv.MORPH_ELLIPSE,(erode_size,erode_size))
 
-		if self.cmdInputs['-ma']['active']:
-			elipse_size = self.cmdInputs['-ma']['variable'][1]
-			self.add = cv.getStructuringElement(cv.MORPH_ELLIPSE,(elipse_size,elipse_size))
-			if self.cmdInputs['-ma']['variable'][0] not in modality_type:
-				self.cmdInputs['-ma']['active'] = False
-				print(f"Addative Modality, {self.cmdInputs['-ma']['variable'][0]}, not recognized, please correct...")
-			else:
-				self.add_type = modality_type[self.cmdInputs['-ma']['variable'][0]]
 
-		if self.cmdInputs['-ms']['active']:
-			elipse_size = self.cmdInputs['-ms']['variable'][1]
-			self.subtract = cv.getStructuringElement(cv.MORPH_ELLIPSE,(elipse_size,elipse_size))
-			if self.cmdInputs['-ms']['variable'][0] not in modality_type:
-				print(f"Subtractive Modality, {self.cmdInputs['-ms']['variable'][0]}, not recognized, please correct...")
-				self.cmdInputs['-ms']['active'] = False
-			else:
-				self.subtract_type = modality_type[self.cmdInputs['-ms']['variable'][0]]
 
-		
-		if self.cmdInputs['-png']['active']:
-			replace_directory(self.pngPath)
-		
-		if self.cmdInputs['-bk']['active']:
-			i = self.cmdInputs['-bk']['variable'][0]
-			image = self.process_image(self.zimg[i],i)
-			cv.imwrite(self.outpath + f"/example_image_{i}.png",image/16)
-			return
-			
-		n = self.zimg.shape[0]
-		self.pIMG = create_zarr_file(self.imgPath,self.fname + "_processed",self.width,self.height,n)
-		for i in tqdm(range(n)):
-			self.pIMG[i] = self.process_image(self.zimg[i],i)
-
-		if self.cmdInputs['-f']['active']:
-			print("Creating final flythrough of raw data...")
-			self.create_final_flythrough_video_for_data_visualization()
-		#RECORD WHAT YOU DID IN STAGE 4 DUMMY
-		
-		
-			
-	def process_image(self,image,c):
-		image = np.array(image).astype(float)
-		
-		#Adjust Brightness
-		if self.cmdInputs['-br']['active']:
-			image += self.cmdInputs['-br']['variable'][0]
-			image = np.clip(image,0,byteDeapth)
-		
-		#Perform Blackhat and Tophat Contrasting
-		if self.cmdInputs['-bt']['active']:
-			topHat = cv.morphologyEx(image, cv.MORPH_TOPHAT, self.kernel)
-			blackHat = cv.morphologyEx(image, cv.MORPH_BLACKHAT, self.kernel)
-			image = image + topHat - blackHat
-		
-		#Perform erosion
-		if self.cmdInputs['-e']['active']:
-			image = cv.erode(image,self.erode,iterations = 1)
-			
-		if self.cmdInputs['-d']['active']:
-			image = cv.dilate(image,self.dilate,iterations = 1)
-		
-		#Adds or subtracts an imaging modality:
-		if self.cmdInputs['-ma']['active']:
-			morph = cv.morphologyEx(image, self.add_type, self.add)
-			image = image + morph
-			
-		if self.cmdInputs['-ms']['active']:
-			morph = cv.morphologyEx(image, self.subtract_type, self.subtract)
-			image = image - morph
-
-		#Perform Windowing
-		if self.cmdInputs['-w']['active']:
-			image -= self.windowMid
-			image *= self.windowContrast
-			image += byteDeapth / 2
-			image = np.clip(image,0,byteDeapth)
-		
-		if self.cmdInputs['-sb']['active']:
-			image = overlay_scalebar_on_image(image,16)
-		
-		if self.cmdInputs['-png']['active']:
-			cv.imwrite(self.pngPath + f"/image_{c}.png",image//16)
-		image = image.astype('uint16')
-		
-		if self.cmdInputs['-8b']['active']:
-			image = image //16
-
-		return image
 
 
 #Program Starts Here
-CMD = inputs(sys.argv)
-
-if CMD.cmdInputs['-r']['active']:
-	flist = findAllDir(CMD.base_path)
-	for f in flist:
-		print(f)
-		DATA = globals(f,CMD.base_path,CMD.cmdInputs)
-		print(f,DATA.allArrays)
-else:
-	DATA = globals(sys.argv[1],CMD.base_path,CMD.cmdInputs)
-	print(sys.argv[1],DATA.allArrays)
-
-
-
-
-#Doing too much... split up salvage and compiler
-#Salvagers accepts 2 additional input, List of Arrays To Salvage, path to seed image
-
-
-#Data Compiler needs 3 additional inputs
-#Good Arrays
-#Bad Arrays
-#Ignored Arrays
-
-
-
+DATA = dataProcessor(sys.argv)
+print("Finished processing...")
