@@ -308,7 +308,7 @@ class survey:
 				if img is None:
 					continue
 				self.data['means'][zarrNumber][i] = np.mean(img)
-				self.data['length'][zarrNumber] = i + 1
+				self.data['length'][zarrNumber] = i
 				if self.data['means'][zarrNumber][i] < 1:
 					break
 			

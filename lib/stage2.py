@@ -24,9 +24,8 @@ class compileData:
 		
 		self.data['images_use_key'] = {}
 
-
 		for zarrNumber in self.useArray:
-			z = self.data['length'][zarrNumber]
+			z = self.compile["runs"][zarrNumber]['length']
 			self.data['images_use_key'][zarrNumber] = []
 			for i in range(z):
 				MEAN = self.means[zarrNumber][i]
@@ -52,7 +51,7 @@ class compileData:
 		for zarrNumber in tqdm(self.useArray):
 			if not self.loadRunFile(zarrNumber):return
 			
-			z = self.data['length'][zarrNumber]
+			z = self.compile["runs"][zarrNumber]['length']
 			for i in range(z):
 				MEAN = self.means[zarrNumber][i]
 				FOCUS = self.focus[zarrNumber][i]
@@ -88,7 +87,7 @@ class compileData:
 			self.focus[zarrNumber] = []
 			self.similarity[zarrNumber] = []
 			
-			for i in range(self.data['length'][zarrNumber]):
+			for i in range(self.compile["runs"][zarrNumber]['length']):
 				image = self.IMG.get_image_with_shift(i,self.width,self.height,self.shifts[zarrNumber],crop = self.compile['crop']['total'])
 				if image is None:
 					print(f"Run {zarrNumber}, index {i} failed... please check...")

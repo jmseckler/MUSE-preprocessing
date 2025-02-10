@@ -134,10 +134,10 @@ class inputs():
 				self.record_survey_data_basic(line,"stains")
 			case "Counterstain":
 				self.record_survey_data_basic(line,"counterstains")
-			case "Crop Height":
-				self.record_survey_data_crop(line,"height")
-			case "Crop Width":
+			case "Crop Height":#This is intensional as I fucked up earlier
 				self.record_survey_data_crop(line,"width")
+			case "Crop Width":
+				self.record_survey_data_crop(line,"height")
 			case _:
 				self.record_survey_data_crop_runs(line)
 
@@ -151,7 +151,7 @@ class inputs():
 	def record_survey_data_crop_runs(self, data):
 		zarrNumber = data[0].split("_")[-1]
 		try:
-			self.compile['runs'][zarrNumber] = {"type":int(data[1]),"shift":np.array([int(data[3]),int(data[2])])}
+			self.compile['runs'][zarrNumber] = {"type":int(data[1]),"shift":np.array([int(data[3]),int(data[2])]),'length':int(data[3]))}
 		except ValueError:
 			print(f"Run #{zarrNumber} contains invalid values, please correct...")
 			self.compile["success"] = False

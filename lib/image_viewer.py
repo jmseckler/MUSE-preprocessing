@@ -28,6 +28,8 @@ scalebar_thickness = 5
 scalebar_text_width = 118
 scalebar_text_offset = (scalebar_length_pixels - scalebar_text_width) // 2
 
+maximum_length_of_tiff_to_check = 1000
+
 def create_text_position(shape,acq=True):
 	if acq:
 		x = fly_index_x
@@ -89,11 +91,17 @@ def save_single_panel_tiff_as_zarr_file(zpath):
 	store = zarr.DirectoryStore(zpath, dimension_separator=os.path.sep)
 	root = zarr.group(store=store, overwrite=True)
 	data = root.create_group('muse')
-	
+
+
 	z = 0
 	for t in tlist:
-		stack_size = os.path.getsize(t)
-		z += np.floor(stack_size/bytes_per_image) + 1
+		for i in range(maximum_length_of_tiff_to_check):
+			try:
+				image = tiffio.imread(t, key = i)
+			except IndexError:
+				break
+			z += i
+
 	image = tiffio.imread(t, key = 0)
 	
 	x, y = image.shape
@@ -405,7 +413,7 @@ class tiff_compiler():
 		self.paths = []
 		self.length = 0
 		for f in flist:
-			for i in range(a):
+			for i in range(maximum_length_of_tiff_to_check):
 				try:
 					image = tiffio.imread(f, key = i)
 				except IndexError:

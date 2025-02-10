@@ -223,7 +223,7 @@ class dataProcessor:
 		for i in range(len(self.allArrays)):
 			self.allArrays[i] = str(self.allArrays[i])
 		
-		self.data['runs'] = sorted(self.allArrays)
+		self.data['runs'] = self.allArrays
 
 	def finish_stage_info_in_data(self):
 		if self.state > 3: return
@@ -293,16 +293,16 @@ class dataProcessor:
 		survey_file.write("Counterstain,,,,\n")
 		
 		survey_file.write(",Min,Max,,\n")
-		survey_file.write(f"Crop Height,0,{self.data['height_survey']},,\n")
-		survey_file.write(f"Crop Width,0,{self.data['width_survey']},,\n")
+		survey_file.write(f"Crop Height,0,{self.data['width_survey']},,\n")
+		survey_file.write(f"Crop Width,0,{self.data['height_survey']},,\n")
 		survey_file.write(",,,,\n")
 		survey_file.write("Rate all Runs: 0 = Skip, 1 = Use, 2 = Ignore,,,,\n")
-		survey_file.write("Run #,Type,Shift Height,Shift Width,\n")
+		survey_file.write("Run #,Type,Shift Height,Shift Width,Final,\n")
 		
 		for zarrNumber in self.data['shifts']:
 			shift_h = self.data['shifts'][zarrNumber][1]
 			shift_w = self.data['shifts'][zarrNumber][0]
-			survey_file.write(f"Run_{zarrNumber},,{shift_h},{shift_w},\n")
+			survey_file.write(f"Run_{zarrNumber},,{shift_h},{shift_w},{self.data['length'][zarrNumber]},\n")
 		survey_file.close()
 			
 
