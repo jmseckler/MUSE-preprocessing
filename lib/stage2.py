@@ -74,6 +74,9 @@ class compileData:
 					index += 1
 		
 		self.zimg.finish_making_zarr_file()
+		self.data['width_compile'] = width
+		self.data['height_compile'] = height
+		self.data['length_compile'] = self.length
 	
 	def failstate(self):
 		print(f"Survey form not filled out for {self.data['filename']} please complete this and retry...")
@@ -116,7 +119,14 @@ class compileData:
 		
 		for z in self.compile["runs"]:
 			self.compile["runs"][z]['shift'] = self.compile["runs"][z]['shift'].tolist()
-		self.data['runs'] = self.compile["runs"]
+		
+		attrs = ["description","stains","counterstains","runs"]
+		
+		for a in attrs:
+			self.data[a] = self.compile[a]
+		
+		
+		
 
 	def setup_local_variables_from_data(self):
 		if self.failed:
@@ -130,7 +140,7 @@ class compileData:
 		self.width = self.data['width_survey']
 		self.shifts = self.compile['shifts']
 		self.means = self.data['means']
-		self.zpath = self.outpath + self.data['filename'] + '.zarr'
+		self.zpath = self.outpath + 'compiled.zarr'
 		
 		self.focus_threshhold = 15
 		self.similarity_threshhold_min = 15

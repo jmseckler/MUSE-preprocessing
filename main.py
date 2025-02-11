@@ -48,7 +48,7 @@ def path_validator(path):
 	path += os.path.sep
 	dataPath = path + 'data.dat'
 	acqPath = path + 'MUSE_acq_1' + os.path.sep
-	musePath = path + 'muse.zarr'
+	musePath = path + 'compiled.zarr'
 	
 	if os.path.isdir(musePath):
 		return 3
@@ -83,13 +83,14 @@ class dataProcessor:
 				survey.run(self.surveyPath)
 				if ms.stopping: return
 				self.data = survey.data
-				self.write_data_file()
+				self.write_survey_file()
 
 			case 2:
 				print("Compiling data file...")
 				compile_data = s2.compileData(self.data,self.compile)
 				compile_data.run()
 				self.data = compile_data.data
+				self.write_process_file()
 			case 3: 
 				print("Data compiling complete...")
 		self.finish_stage_info_in_data()
@@ -286,7 +287,7 @@ class dataProcessor:
 			if self.cmdInputs[cmd]['active']:
 				self.data['stages'][STAGE]['flags'][cmd] = self.cmdInputs[cmd]
 	
-	def write_data_file(self):
+	def write_survey_file(self):
 		survey_file = open(self.outpath + "survey_form.csv","w")
 		survey_file.write("Description,,,,\n")
 		survey_file.write("Stain,,,,\n")
@@ -304,7 +305,31 @@ class dataProcessor:
 			shift_w = self.data['shifts'][zarrNumber][0]
 			survey_file.write(f"Run_{zarrNumber},,{shift_h},{shift_w},{self.data['length'][zarrNumber]},\n")
 		survey_file.close()
-			
+
+	def write_process_file(self):
+		compile_file = open(self.outpath + "post_process_form.csv","w")
+		compile_file.write(f"Description,self.data['description'][0],self.data['description'][1],self.data['description'][2],\n")
+		compile_file.write(f"Stain,self.data['stains'][0],self.data['stains'][1],self.data['stains'][2],\n")
+		compile_file.write(f"Counterstain,self.data['counterstains'][0],self.data['counterstains'][1],self.data['counterstains'][2],\n")
+		
+		compile_file.write(",Min,Max,,\n")
+		compile_file.write(f"Crop Height,0,{self.data['width_compile']},,\n")
+		compile_file.write(f"Crop Width,0,{self.data['height_compile']},,\n")
+		compile_file.write(",,,,\n")
+		compile_file.write(",Min,Max,,\n")
+		compile_file.write(f"Windowing,0,4095,,\n")
+		compile_file.write(f"Indicies,0,{self.data['length_compile']},,\n")
+		compile_file.write(",,,,\n")
+		compile_file.write("Output Key: 0 = 12-bit Zarr, 1 = 8-bit Zarr, 2 = 8-bit PNG,3 = 12-bit Zarr/8-bit PNG,\n")
+		compile_file.write("Output,3,,,\n")
+		compile_file.write(",,,,\n")
+		compile_file.write("Step Key,0 = Dilation,1 = Erosion,2 = Opening,3 = Closing,\n")
+		compile_file.write(",4 = Gradient,5 = Tophat,6 = Blackhat,7 = Blacktop Contrasting,\n")
+		compile_file.write(",,,,\n")
+		compile_file.write("Step Type,0 = Replace Image,1 = Add to Image,2 = Subtract from Image,\n")
+		compile_file.write(",,,,\n")
+		compile_file.write("Step,Type,Kernel Size,\n")
+		compile_file.close()
 
 
 class run_finder:

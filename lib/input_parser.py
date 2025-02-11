@@ -151,7 +151,7 @@ class inputs():
 	def record_survey_data_crop_runs(self, data):
 		zarrNumber = data[0].split("_")[-1]
 		try:
-			self.compile['runs'][zarrNumber] = {"type":int(data[1]),"shift":np.array([int(data[3]),int(data[2])]),'length':int(data[3]))}
+			self.compile['runs'][zarrNumber] = {"type":int(data[1]),"shift":np.array([int(data[3]),int(data[2])]),'length':int(data[3])}
 		except ValueError:
 			print(f"Run #{zarrNumber} contains invalid values, please correct...")
 			self.compile["success"] = False
@@ -159,7 +159,7 @@ class inputs():
 	def record_survey_data_basic(self, data,tag):
 		zarrNumber = data[0].split("_")[-1]
 		try:
-			self.compile[tag][zarrNumber] = [data[1],data[2],data[3]]
+			self.compile[tag] = [data[1],data[2],data[3]]
 		except ValueError:
 			print(f"Run #{zarrNumber} contains invalid values, please correct...")
 			self.compile["success"] = False
