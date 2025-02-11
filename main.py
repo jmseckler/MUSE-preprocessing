@@ -350,7 +350,13 @@ class run_finder:
 			self.acq_path[i] = self.acq_path[i].removesuffix("MUSE_acq_1")
 
 	def get_filelists(self):
-		flist = self.file_list_compiler(self.path)
+
+		if path_validator(self.path) > 0:
+			flist = [self.path]
+		else:
+			flist = self.file_list_compiler(self.path)
+		
+		
 #		flist = glob.glob(os.path.join(self.path, '**', '*'), recursive=True)
 		self.acq_path = []
 		self.pro_path = []
