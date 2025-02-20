@@ -62,11 +62,11 @@ class compileData:
 					pSSIM = self.similarity[zarrNumber][i]
 					
 				if MEAN > 0 and FOCUS > fmin and SSIM > smin and SSIM < smax and pSSIM < smax:
-					image = self.IMG.get_image_with_shift(i,self.width,self.height,self.shifts[zarrNumber],crop = self.compile['crop']['total'])
+					image = self.IMG.get_image_with_shift(i,self.width+1,self.height+1,self.shifts[zarrNumber],crop = self.compile['crop']['total'])
 					self.zimg.add_image(image,index)
 					
 					#Write a png for the survey movie
-					IMG = self.IMG.get_image_with_shift(i,self.width,self.height,self.shifts[zarrNumber],10.0,False,self.data['filename'],True,True,True,self.compile['crop']['total'])
+					IMG = self.IMG.get_image_with_shift(i,self.width+1,self.height+1,self.shifts[zarrNumber],10.0,False,self.data['filename'],True,True,True,self.compile['crop']['total'])
 					c = ms.format_image_number_to_10000(index)
 					fname = f"image_{c}"
 					self.wIMG.add_image(IMG,fname)
@@ -89,15 +89,15 @@ class compileData:
 			if not self.loadRunFile(zarrNumber): return
 			self.focus[zarrNumber] = []
 			self.similarity[zarrNumber] = []
-			
 			for i in range(self.compile["runs"][zarrNumber]['length']):
-				image = self.IMG.get_image_with_shift(i,self.width,self.height,self.shifts[zarrNumber],crop = self.compile['crop']['total'])
+				image = self.IMG.get_image_with_shift(i,self.width+1,self.height+1,self.shifts[zarrNumber],crop = self.compile['crop']['total'])
 				if image is None:
 					print(f"Run {zarrNumber}, index {i} failed... please check...")
+					quit()
 				self.focus[zarrNumber].append(img.focus(image))
 				
 				if i > 0:
-					pImg = self.IMG.get_image_with_shift(i-1,self.width,self.height,self.shifts[zarrNumber],crop = self.compile['crop']['total'])
+					pImg = self.IMG.get_image_with_shift(i-1,self.width+1,self.height+1,self.shifts[zarrNumber],crop = self.compile['crop']['total'])
 					self.similarity[zarrNumber].append(img.similarity(image,pImg))
 				else:
 					self.similarity[zarrNumber].append(0)

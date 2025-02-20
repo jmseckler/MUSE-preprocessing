@@ -8,10 +8,36 @@ stopping = False #Stopping lets the GUI stop all long processes in the program.
 shift_crop_size = 1000 #Crop size when calculating shifts
 max_shift_x = 2500 #maximum allowed shift amount in height
 max_shift_y = 3500 #maximum allowed shift amount in width
+median_filter_zie = 2
+
 
 #Image Creator Variables
 spacing = 500
 scalebar_color = (255,255,255)
+
+
+#Post Processing Key
+postprocess_key = [
+	"dilation",
+	"erosion",
+	"opening",
+	"closing",
+	"gradient",
+	"tophat",
+	"blackhat",
+	"blacktop"
+	]
+
+kernel = {
+	"dilation":2,
+	"erosion":2,
+	"opening":20,
+	"closing":20,
+	"gradient":20,
+	"tophat":50,
+	"blackhat":50,
+	"blacktop":50
+	}
 
 
 def copy(variable):
@@ -27,6 +53,16 @@ def format_image_number_to_10000(c):
 	else:
 		text = str(c)
 	return text
+
+def copy_file(source_path, destination_path):
+	try:
+		copied_file = shutil.copy2(source_path, destination_path)
+	except FileNotFoundError:
+		print("Error: Source file not found.")
+	except PermissionError:
+		print("Error: Permission denied.")
+	except Exception as e:
+		print(f"Error: {e}")
 
 def make_directory(directory):
 	if not os.path.isdir(directory):

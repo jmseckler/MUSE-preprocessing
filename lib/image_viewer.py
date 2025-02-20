@@ -4,6 +4,7 @@ import dask.array as da
 import cv2 as cv
 from skimage.exposure import match_histograms
 from skimage.metrics import structural_similarity as ssim
+from scipy.ndimage import median_filter
 import numpy as np
 import tifffile as tiffio
 
@@ -73,6 +74,7 @@ def determine_tiff_path(zpath):
 
 
 def focus(img):
+#	if img is None: return 1000
 	vimage = img - np.mean(img)
 	vimage = 3.0 * vimage
 	vimage = vimage + 2027
@@ -108,14 +110,15 @@ def save_single_panel_tiff_as_zarr_file(zpath):
 	
 	zshape, zchunk = shape_definer(z,x,y,1)
 	full = data.zeros('stitched', shape=zshape, chunks=zchunk, dtype="i2" )
-	
+
 	zcount = 0
 	for t in tlist:
-		stack_size = os.path.getsize(t)
-		c = int(np.floor(stack_size/bytes_per_image) + 1)
-		for i in range(c):
-			image = tiffio.imread(t, key = i)
-			full[zcount] = image
+		for i in range(maximum_length_of_tiff_to_check):
+			try:
+				image = tiffio.imread(t, key = i)
+				full[zcount] = image
+			except IndexError:
+				break
 			zcount += 1
 	return True
 
@@ -153,6 +156,12 @@ class img():
 		self.height = self.zIMG.shape[1]
 		self.width = self.zIMG.shape[2]
 		
+		self.setup_kernels()
+		self.crop = None
+		self.window = None
+		self.steps = None
+		self.byteDepth = 4096
+		
 		self.failed = False
 		return
 	
@@ -174,6 +183,17 @@ class img():
 		contrast_image = contrast_image.astype('uint8')
 		
 		return contrast_image
+	
+	def crop_image(self,image):
+		return image[self.crop[0]:self.crop[1],self.crop[2]:self.crop[3]]
+
+	
+	def define_kernel(self,key,size):
+		self.kernel[key] = cv.getStructuringElement(cv.MORPH_ELLIPSE,(size,size))
+	
+	def denoise_image(self,img):
+		denoised_image = median_filter(img, size=ms.median_filter_zie)
+		return denoised_image
 	
 	def find_image_position(self,large_image, small_image):
 		result = cv.matchTemplate(large_image, small_image, cv.TM_CCOEFF_NORMED)
@@ -249,6 +269,33 @@ class img():
 				print(f"Filename, {self.inPath} is corrupted or incorrect and did not produce a file from zarr file...")
 				return None
 
+	def get_image_with_post_processing(self,index):
+		if self.window is None or self.steps is None:
+			print("Post Processing Criteria are not properly set, please correct...")
+			return
+		
+		image = self.get_image(index)
+		image = image.astype('float')
+		
+		if self.window[2] == 0:
+			image = self.window_image(image)
+
+		if self.crop is not None:
+			image = self.crop_image(image)
+		
+		if self.denoise:
+			image = self.denoise_image(image)
+
+		image = self.post_processing_step(image)
+
+		if self.window[2] != 0:
+			image = self.window_image(image)
+
+		
+		image = np.clip(image,0,self.byteDepth-1)
+		return image
+
+
 	def get_image_with_shift(self,index,output_width,output_height,shift,scale = 1.0,gridline = False,title=None,label=False,scalebar=False,reduce_bits = False,crop = None):
 		#Index is an int representing the index of the zarr to pull the image from
 		#Output_height and output_width are the size of the image that the image will be matted on. These must be larger than the image size
@@ -288,7 +335,8 @@ class img():
 		output_image[start_h:end_h,start_w:end_w] = image
 
 		if crop is not None:
-			output_image = output_image[crop[0]:crop[1],crop[2]:crop[3]]
+			self.crop = crop
+			output_image = self.crop_image(output_image)
 		
 		if gridline:
 			output_image = self.overlay_grid_lines_on_image(output_image)
@@ -395,6 +443,91 @@ class img():
 		
 		text_position = (start_point[0] + scalebar_text_offset, start_point[1] - 10)
 		cv.putText(image, text, text_position, fly_font, fly_font_scale, flyColor, fly_thickness, cv.LINE_AA)
+		return image
+	
+	def post_processing_step(self,image):
+		tmp = np.zeros(image.shape)
+		for step in self.steps:
+			key = ms.postprocess_key[step['cmd']]
+			if step['kernel'] > 0:
+				self.define_kernel(key,step['kernel'])
+			
+			if step['type'] == 0:
+				image = image + tmp
+				image = getattr(self,key)(image)
+				tmp = np.zeros(image.shape)
+			elif step['type'] == 1:
+				tmp = tmp + getattr(self,key)(image)
+			elif step['type'] == 2:
+				tmp = tmp - getattr(self,key)(image)
+		image = image + tmp
+		return image
+		
+	
+	def post_processing_windowing_set(self):
+		if self.window is None: return
+		self.windowHalf = (self.window[1] - self.window[0]) // 2
+		self.windowMid = self.window[0] + self.windowHalf
+		self.windowContrast = float(self.byteDepth) / (2 * float(self.windowHalf))
+	
+	def setup_kernels(self):
+		self.kernel = {}
+		for key in ms.postprocess_key:
+			self.define_kernel(key,ms.kernel[key])
+	
+	def setup_post_processing(self,steps,windowing,crop,denoise=True):
+		#Index is an int representing the index of the zarr to pull the image from
+		#Steps are post-processing steps taken from the input form
+		#Windowing is the max and min pixel intensitues, taken from the input form
+		#Crop is the height and width of the output image, taken from input form
+		self.crop = crop
+		self.window = windowing
+		self.steps = steps
+		self.denoise = denoise
+		self.post_processing_windowing_set()
+
+	def window_image(self,image):
+		image -= self.windowMid
+		image *= self.windowContrast
+		image += self.byteDepth // 2
+		image = np.clip(image,0,self.byteDepth-1)
+		return image
+
+
+#Post processing functions, I'm keeping them separate because I need to see them all together
+	def dilation(self,image):
+		kernel = self.kernel['dilation']
+		return cv.dilate(image,kernel,iterations = 1)
+
+	def erosion(self,image):
+		kernel = self.kernel['erosion']
+		return cv.erode(image,kernel,iterations = 1)
+
+	def opening(self,image):
+		kernel = self.kernel['opening']
+		return cv.morphologyEx(image, cv.MORPH_OPEN, kernel)
+
+	def closing(self,image):
+		kernel = self.kernel['closing']
+		return cv.morphologyEx(image, cv.MORPH_CLOSE, kernel)
+	
+	def gradient(self,image):
+		kernel = self.kernel['gradient']
+		return cv.morphologyEx(image, cv.MORPH_GRADIENT, kernel)
+
+	def tophat(self,image):
+		kernel = self.kernel['tophat']
+		return cv.morphologyEx(image, cv.MORPH_TOPHAT, kernel)
+
+	def blackhat(self,image):
+		kernel = self.kernel['blackhat']
+		return cv.morphologyEx(image, cv.MORPH_BLACKHAT, kernel)
+	
+	def blacktop(self,image):
+		kernel = self.kernel['blacktop']
+		topHat = cv.morphologyEx(image, cv.MORPH_TOPHAT, kernel)
+		blackHat = cv.morphologyEx(image, cv.MORPH_BLACKHAT, kernel)
+		image = image + topHat - blackHat
 		return image
 
 
