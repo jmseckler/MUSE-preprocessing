@@ -230,7 +230,7 @@ class dataProcessor:
 		self.data['runs'] = self.allArrays
 
 	def finish_stage_info_in_data(self):
-		if self.state > 3: return
+		if self.state > 3 or state = 0: return
 		STAGE = stages[self.state - 1]
 		self.data['stages'][STAGE]['end'] = get_time()
 		self.data['stages']['current'] = self.state + 1
@@ -327,6 +327,8 @@ class dataProcessor:
 		compile_file.write("Output,3,,,\n")
 		compile_file.write(",,,,\n")
 		compile_file.write(f"Sample Index,{self.data['length_compile']//2},Put -1 to process all images,otherwise will only wirte single PNG,\n")
+		compile_file.write(",,,,\n")
+		compile_file.write(f"Flythrough,1,Put 1 for yes and 0 for no,\n")
 		compile_file.write(",,,,\n")
 		compile_file.write("Step Key,'0 = Dilation,'1 = Erosion,'2 = Opening,'3 = Closing,\n")
 		compile_file.write(",'4 = Gradient,'5 = Tophat,'6 = Blackhat,'7 = Blacktop Contrasting,\n")
