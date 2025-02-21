@@ -105,6 +105,7 @@ class inputs():
 			"Indicies",
 			"Output",
 			"Sample Index",
+			"Flythrough",
 			"0",
 			"1",
 			"2",
@@ -126,8 +127,8 @@ class inputs():
 		else:
 			print(f"Post-processing file, {surveyPath} , not found, assuming file does not exist...")
 			self.post["success"] = False
-		
-		self.post['crop'] = [self.post['crop_height'][0],self.post['crop_height'][1],self.post['crop_width'][0],self.post['crop_width'][1]]
+		if self.post["success"]:
+			self.post['crop'] = [self.post['crop_height'][0],self.post['crop_height'][1],self.post['crop_width'][0],self.post['crop_width'][1]]
 		
 	
 	def compile_survey(self,inpath):
@@ -195,6 +196,8 @@ class inputs():
 				self.record_compile_data_single(line,"output")
 			case "Sample Index":
 				self.record_compile_data_single(line,"break_index")
+			case "Flythrough":
+				self.record_compile_data_single(line,"flythrough")
 			case "Windowing":
 				self.record_compile_data_window(line)
 			case "Indicies":
