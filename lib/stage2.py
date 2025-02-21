@@ -125,6 +125,9 @@ class compileData:
 		for a in attrs:
 			self.data[a] = self.compile[a]
 		
+		spath = self.outpath + "survey_form.csv"
+		dpath = self.zpath + os.path.sep + "survey_form.csv"
+		ms.copy_file(spath, dpath)
 		
 		
 
