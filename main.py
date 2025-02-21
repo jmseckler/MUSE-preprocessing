@@ -143,7 +143,7 @@ class dataProcessor:
 			self.pngPath = self.outpath + pngFolder
 			ms.make_directory(self.pngPath)
 		
-		if self.state > 0:
+		if self.state == 1:
 			self.saveMetaData()
 
 	def convertDataTagToArray(self):
