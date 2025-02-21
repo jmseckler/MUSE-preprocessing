@@ -142,7 +142,9 @@ class dataProcessor:
 		if self.png:
 			self.pngPath = self.outpath + pngFolder
 			ms.make_directory(self.pngPath)
-		self.saveMetaData()
+		
+		if self.state > 0:
+			self.saveMetaData()
 
 	def convertDataTagToArray(self):
 		for tag in dataConversionTags:
@@ -230,7 +232,6 @@ class dataProcessor:
 		self.data['runs'] = self.allArrays
 
 	def finish_stage_info_in_data(self):
-		if self.state > 3 or state = 0: return
 		STAGE = stages[self.state - 1]
 		self.data['stages'][STAGE]['end'] = get_time()
 		self.data['stages']['current'] = self.state + 1
