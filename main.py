@@ -81,6 +81,7 @@ class dataProcessor:
 		match self.state:
 			case 0: return
 			case 1:
+				if self.only_compile: return
 				print("Surveying single data file...")
 				survey = s1.survey(self.data)
 				survey.run(self.surveyPath)
@@ -95,6 +96,7 @@ class dataProcessor:
 				self.data = compile_data.data
 				self.write_process_file()
 			case 3:
+				if self.only_compile: return
 				print("Postprocessing data...")
 				post_data = s3.processData(self.data,self.post)
 				post_data.run()
@@ -296,10 +298,11 @@ class dataProcessor:
 		survey_file.write("Description,,,,\n")
 		survey_file.write("Stain,,,,\n")
 		survey_file.write("Counterstain,,,,\n")
+		survey_file.write("Upload,No,,,\n")
 		
 		survey_file.write(",Min,Max,,\n")
-		survey_file.write(f"Crop Height,0,{self.data['width_survey']},,\n")
-		survey_file.write(f"Crop Width,0,{self.data['height_survey']},,\n")
+		survey_file.write(f"Crop Height,0,{self.data['height_survey']},,\n")
+		survey_file.write(f"Crop Width,0,{self.data['width_survey']},,\n")
 		survey_file.write(",,,,\n")
 		survey_file.write("Rate all Runs: 0 = Skip, 1 = Use, 2 = Ignore,,,,\n")
 		survey_file.write("Run #,Type,Shift Height,Shift Width,Final,\n")
@@ -334,7 +337,7 @@ class dataProcessor:
 		compile_file.write("Step Key,'0 = Dilation,'1 = Erosion,'2 = Opening,'3 = Closing,\n")
 		compile_file.write(",'4 = Gradient,'5 = Tophat,'6 = Blackhat,'7 = Blacktop Contrasting,\n")
 		compile_file.write(",,,,\n")
-		compile_file.write("Step Type,0 = Replace Image,1 = Add to Image,2 = Subtract from Image,\n")
+		compile_file.write("Step Type,'0 = Replace Image,'1 = Add to Image,'2 = Subtract from Image,\n")
 		compile_file.write(",,,,\n")
 		compile_file.write("Step,Type,Kernel Size,\n")
 		compile_file.close()

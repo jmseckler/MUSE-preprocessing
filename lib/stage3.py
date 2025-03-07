@@ -56,6 +56,12 @@ class processData:
 			image = self.IMG.get_image_with_post_processing(i)
 			self.record_image(image,count)
 			count += 1
+		
+		if self.flythrough:
+			self.wIMG.make_flythrough_movie_from_pngs(self.moviePath,"processed")
+			directory = self.path + 'tmp' + os.path.sep
+			ms.remove_directory(directory)
+		
 		self.cleanup()
 
 			
@@ -65,6 +71,11 @@ class processData:
 		if self.pimg is not None:
 			img = image / 16
 			self.pimg.add_image(img,index)
+		if self.flythrough:
+			c = ms.format_image_number_to_10000(index)
+			fname = f"image_{c}"
+			img = image / 16
+			self.wIMG.add_image(img,fname,True)
 		
 	
 	def setup_local_variables_from_data(self):
@@ -90,6 +101,7 @@ class processData:
 		self.output_type = self.post['output']
 		self.break_point = self.post['break_index']
 		
+		self.flythrough = self.post["flythrough"] == 1
 		self.define_indicies()
 
 	def setup_image_creator(self):
@@ -98,6 +110,11 @@ class processData:
 		
 		self.zimg = None
 		self.pimg = None
+
+		if self.flythrough:
+			directory = self.path + 'tmp' + os.path.sep
+			ms.replace_directory(directory)
+			self.wIMG = imgc.imageCreator(directory,self.height-1,self.width-1,self.length,"png")
 		
 		match self.output_type:
 			case 0:

@@ -9,7 +9,8 @@ cmdInputs = {
 	'-nr':{"name":"Override Recursive","base":"recursive_override","types":[],"names":[],"variable":[],"active":False,"tooltips":f"Overrides automatic recursive file calculations. This will process the first file it finds and no others"},
 	'-o':{"name":"Override Output","base":"output","types":['str'],"names":['outpath'],"variable":[f".{os.path.sep}output{os.path.sep}"],"active":False,"tooltips":"Changes output directory"},
 	'-png':{"name":"Finish Data","base":"png","types":['int'],"names":['png_index'],"variable":[-1],"active":False,"tooltips":"Saves final stage as png stack, if index is given, saves only a single file"},
-	'-s':{"name":"Survey Data","base":"survey","types":[],"names":[],"variable":[],"active":False,"tooltips":"Surveys data, collects all metadata, and outputs intial files"}
+	'-s':{"name":"Survey Data","base":"survey","types":[],"names":[],"variable":[],"active":False,"tooltips":"Surveys data, collects all metadata, and outputs intial files"},
+	'-s2':{"name":"Only Compile Data","base":"only_compile","types":[],"names":[],"variable":[],"active":False,"tooltips":"Surveys data, collects all metadata, and outputs intial files"}
 	}
 
 
@@ -144,6 +145,7 @@ class inputs():
 			"Counterstain",
 			"Crop Height",
 			"Crop Width",
+			"Upload",
 			"Run_"
 		)
 		
@@ -230,6 +232,7 @@ class inputs():
 			self.post["success"] = False
 
 
+
 	def record_compile_data_window(self,data):
 		try:
 			self.post['window'] = [int(data[1]),int(data[2]),int(data[3])]
@@ -269,9 +272,11 @@ class inputs():
 			case "Counterstain":
 				self.record_survey_data_basic(line,"counterstains")
 			case "Crop Height":#This is intensional as I fucked up earlier
-				self.record_survey_data_crop(line,"width")
-			case "Crop Width":
 				self.record_survey_data_crop(line,"height")
+			case "Crop Width":
+				self.record_survey_data_crop(line,"width")
+			case "Upload":
+				self.record_compile_data_upload(line,'upload')
 			case _:
 				self.record_survey_data_crop_runs(line)
 
@@ -297,5 +302,11 @@ class inputs():
 			print(f"Run #{data[0]} contains invalid values, please correct...")
 			self.compile["success"] = False
 
+	def record_compile_data_upload(self,data,crop):
+		try:
+			self.compile[crop] = data[1].lower() == "yes"
+		except ValueError:
+			print(f"Data {crop.capitalize()} contains invalid values {data}, please correct...")
+			self.post["success"] = False
 
 

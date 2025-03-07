@@ -1,4 +1,5 @@
 from lib import methods as ms
+from lib import mask_normalize as mk
 import os, shutil, zarr, glob
 import dask.array as da
 import cv2 as cv
@@ -7,6 +8,7 @@ from skimage.metrics import structural_similarity as ssim
 from scipy.ndimage import median_filter
 import numpy as np
 import tifffile as tiffio
+
 
 
 header_thickness = 10
@@ -21,7 +23,7 @@ fly_index_y = 50
 fly_scale = 5
 
 scalebar_length_pixels = 1000
-scalebar_index_x = -50
+scalebar_index_x = -75
 scalebar_index_y = -50 - scalebar_length_pixels
 scalebar_length = int(scalebar_length_pixels * 0.9)
 scalebar_color = (255,255,255)
@@ -83,6 +85,12 @@ def focus(img):
 	variance = cv.Laplacian(blurred_image, cv.CV_64F)
 	return variance.var()
 
+def image_histogram(image, bitdepth = 4096):
+	image_array = np.array(image)
+	flattened_array = image_array.flatten()
+	histogram, bin_edges = np.histogram(flattened_array, bins=bitdepth, range=(0, bitdepth))
+	return histogram
+
 def save_single_panel_tiff_as_zarr_file(zpath):
 	tlist = determine_tiff_path(zpath)
 	if len(tlist) == 0:
@@ -136,9 +144,10 @@ def similarity(img1,img2):
 
 
 class img():
-	def __init__(self,inpath,acq=False):
+	def __init__(self,inpath,acq=False,color=False):
 		self.inPath = inpath
 		self.acq = acq
+		self.color = color
 		self.failed = True
 		
 		if not self.inPath.endswith('.zarr'):
@@ -151,17 +160,17 @@ class img():
 		
 		if self.zIMG is None:
 			return
-
 		self.length = self.zIMG.shape[0]
 		self.height = self.zIMG.shape[1]
 		self.width = self.zIMG.shape[2]
-		
 		self.setup_kernels()
 		self.crop = None
 		self.window = None
 		self.steps = None
 		self.byteDepth = 4096
 		
+		
+		self.maskNormalize = False
 		self.failed = False
 		return
 	
@@ -225,38 +234,33 @@ class img():
 		end = large - diff
 		return start,end
 
-	def get_image(self,index,width = 0,height = 0,bitRate=12):
+	def get_image(self,index,reduceBits=False,colorChannel = None):
 		try:
-			image = np.array(self.zIMG[index])
+			if self.color and colorChannel is None:
+				image = np.zeros((self.height,self.width,3))
+				image[:, :, 2] = 0*np.array(self.zIMG[index])
+				image[:, :, 1] = np.array(self.gIMG[index])
+				image[:, :, 0] = 0*np.array(self.bIMG[index])
+			elif self.color:
+				match colorChannel:
+					case 'R':
+						image = np.array(self.zIMG[index])
+					case 'G':
+						image = np.array(self.gIMG[index])
+					case 'B':
+						image = np.array(self.bIMG[index])
+					case _:
+						return None
+			else:
+				image = np.array(self.zIMG[index])
 		except RuntimeError:
 			print(f"Error occurred in image {index} of zarr with path {self.inPath}")
 			return None
 		
-		if bitRate == 8:
+		if reduceBits:
 			image = image // 16
-		
-		if (width == 0 and height == 0) or (width == self.width and height == self.height):
-			return image
-		
-		if width < self.width:
-			start,end = self.get_crop_points_to_center(width,self.width)
-			image = image[start:end]
-		elif width > self.width:
-			newImage = np.zeros((width,image.shape[2]))
-			start,end = self.get_crop_points_to_center(self.width,width)
-			newImage[start:end] = image
-			image = newImage
-		
-		if height < self.height:
-			start,end = self.get_crop_points_to_center(height,self.height)
-			image = image[:,start:end]
-		elif height > self.height:
-			newImage = np.zeros((image.shape[1],height))
-			start,end = self.get_crop_points_to_center(self.height,height)
-			newImage[:,start:end] = image
-			image = newImage
 		return image
-
+    
 	def get_image_from_zarr_as_dask_array(self):
 		try:
 			zimg = da.from_zarr(self.inPath, component="muse/stitched/")
@@ -276,6 +280,11 @@ class img():
 		
 		image = self.get_image(index)
 		image = image.astype('float')
+		
+		if self.maskNormalize:
+			fname = mk.get_fname(index)
+			maskPath = self.inPath.replace('compiled.zarr','') + os.path.sep + 'mask' + os.path.sep + fname + '.png'
+			image = mk.normalize_fasicles_on_convolution(image,maskPath)
 		
 		if self.window[2] == 0:
 			image = self.window_image(image)
@@ -312,7 +321,7 @@ class img():
 			return
 		
 		if reduce_bits:
-			image = self.get_image(index,bitRate=8)
+			image = self.get_image(index,True)
 		else:
 			image = self.get_image(index)
 		if image is None:
@@ -377,6 +386,10 @@ class img():
 	def loadZarrFile(self):
 		if self.acq:
 			self.zIMG = self.get_image_from_zarr_as_dask_array()
+		elif self.color:
+			self.zIMG = da.from_zarr(self.inPath, component="muse/stitchedB/")
+			self.gIMG = da.from_zarr(self.inPath, component="muse/stitchedG/")
+			self.bIMG = da.from_zarr(self.inPath, component="muse/stitchedR/")
 		else:
 			self.zIMG = da.from_zarr(self.inPath, component="data/0/")
 

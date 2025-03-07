@@ -1,4 +1,6 @@
 from lib import methods as ms
+from lib import image_viewer as iv
+
 import numpy as np
 import cv2 as cv
 import os, zarr
@@ -124,8 +126,15 @@ class imageCreator():
 				self.fail_state_activated()
 				return
 				
-	def add_image(self,image,index):
+	def add_image(self,image,index,fly=False):
 		if self.failed: return
+		
+		if fly:
+			image = self.overlay_scalebar_on_image(image)
+			image = self.overlay_run_and_index_number_on_image(image,index)
+			resolution = (int(image.shape[1] / 10), int(image.shape[0] / 10))
+			image = cv.resize(image, resolution, interpolation= cv.INTER_LINEAR)
+		
 		match self.type:
 			case "12b":
 				#Actually Write Zarr
@@ -180,4 +189,42 @@ class imageCreator():
 		cmd = f'ffmpeg -framerate 10 -i {self.path}image_%04d.png -c:v libx264 -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2" -r 30 -y -pix_fmt yuv420p {outpath}{mName}.mp4'
 		stream = os.popen(cmd)
 		output = stream.read()
+
+	def overlay_run_and_index_number_on_image(self,image,i):
+		position = iv.create_text_position(image.shape)
+		
+		idx = i.split('_')[-1]
+		try:
+			idx = int(idx)
+		except:
+			pass
+		
+		text = f"Index#{idx}"
+		cv.putText(image, text, position, iv.fly_font, iv.fly_font_scale, iv.fly_color, iv.fly_thickness, cv.LINE_AA)
+		return image
+	
+	def overlay_scalebar_on_image(self,image,upbit=False):
+		position = iv.create_text_position(image.shape,False)
+		
+		if upbit:
+			brate = 16
+		else:
+			brate = 1
+		
+		scalebarColor = (brate * iv.scalebar_color[0],brate * iv.scalebar_color[1],brate * iv.scalebar_color[2])
+		
+		start_point = position
+		end_point = (position[0] + iv.scalebar_length_pixels, position[1])
+		cv.line(image, start_point, end_point, scalebarColor, iv.scalebar_thickness)
+		
+		text = f"{iv.scalebar_length} um"
+		text_size = cv.getTextSize(text, iv.fly_font, iv.fly_font_scale, iv.fly_thickness)[0]
+		scalebar_text_offset = (iv.scalebar_length_pixels - text_size[0]) // 2
+		
+		flyColor = (brate * iv.fly_color[0],brate * iv.fly_color[1],brate * iv.fly_color[2])
+		
+		text_position = (start_point[0] + iv.scalebar_text_offset, start_point[1] - 10)
+		cv.putText(image, text, text_position, iv.fly_font, iv.fly_font_scale, flyColor, iv.fly_thickness, cv.LINE_AA)
+		return image
+
 		

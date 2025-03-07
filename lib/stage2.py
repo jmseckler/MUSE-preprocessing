@@ -3,6 +3,8 @@ from lib import image_viewer as img
 from lib import image_creator as imgc
 from lib import methods as ms
 import os
+import matplotlib.pyplot as plt
+import numpy as np
 
 class compileData:
 	def __init__(self,data,comp):
@@ -46,6 +48,8 @@ class compileData:
 		
 		self.zimg = imgc.imageCreator(self.zpath,height,width,self.length)
 		self.wIMG = imgc.imageCreator(directory,height,width,self.length,"png")
+		self.histogram = np.zeros(4096)
+		
 		
 		index = 0
 		for zarrNumber in tqdm(self.useArray):
@@ -63,7 +67,9 @@ class compileData:
 					
 				if MEAN > 0 and FOCUS > fmin and SSIM > smin and SSIM < smax and pSSIM < smax:
 					image = self.IMG.get_image_with_shift(i,self.width+1,self.height+1,self.shifts[zarrNumber],crop = self.compile['crop']['total'])
+					if image is None: continue
 					self.zimg.add_image(image,index)
+					self.histogram += img.image_histogram(image)
 					
 					#Write a png for the survey movie
 					IMG = self.IMG.get_image_with_shift(i,self.width+1,self.height+1,self.shifts[zarrNumber],10.0,False,self.data['filename'],True,True,True,self.compile['crop']['total'])
@@ -73,6 +79,7 @@ class compileData:
 					
 					index += 1
 		
+		self.histogram = self.histogram / index
 		self.zimg.finish_making_zarr_file()
 		self.data['width_compile'] = width
 		self.data['height_compile'] = height
@@ -92,8 +99,10 @@ class compileData:
 			for i in range(self.compile["runs"][zarrNumber]['length']):
 				image = self.IMG.get_image_with_shift(i,self.width+1,self.height+1,self.shifts[zarrNumber],crop = self.compile['crop']['total'])
 				if image is None:
-					print(f"Run {zarrNumber}, index {i} failed... please check...")
-					quit()
+					print(f"Run {zarrNumber}, index {i} failed... data will be excluded...")
+					self.similarity[zarrNumber].append(10000000000)
+					self.focus[zarrNumber].append(10000000000)
+					continue
 				self.focus[zarrNumber].append(img.focus(image))
 				
 				if i > 0:
@@ -122,6 +131,8 @@ class compileData:
 		
 		attrs = ["description","stains","counterstains","runs"]
 		
+		self.save_averaged_histograms(self.histogram)
+		
 		for a in attrs:
 			self.data[a] = self.compile[a]
 		
@@ -129,6 +140,17 @@ class compileData:
 		dpath = self.zpath + os.path.sep + "survey_form.csv"
 		ms.copy_file(spath, dpath)
 		
+	def save_averaged_histograms(self,hist):
+		hist[0] = 0
+		hist[4050:-1] = 0
+		x = np.arange(4096)
+		plt.figure(figsize=(10, 6))
+		plt.plot(x, hist)  # bin_edges has one extra element
+		plt.title(f"Histogram of Pixel Intensities")
+		plt.xlabel("Pixel Intensity")
+		plt.ylabel("Frequency")
+		plt.savefig(self.outpath + f'histogram.png')
+		plt.close()
 		
 
 	def setup_local_variables_from_data(self):
