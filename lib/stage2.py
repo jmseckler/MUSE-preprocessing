@@ -29,7 +29,7 @@ class compileData:
 		for zarrNumber in self.useArray:
 			z = self.compile["runs"][zarrNumber]['length']
 			self.data['images_use_key'][zarrNumber] = []
-			for i in range(z):
+			ffminor i in range(z):
 				MEAN = self.means[zarrNumber][i]
 				FOCUS = self.focus[zarrNumber][i]
 				SSIM = self.similarity[zarrNumber][i]
@@ -50,8 +50,10 @@ class compileData:
 		self.wIMG = imgc.imageCreator(directory,height,width,self.length,"png")
 		self.histogram = np.zeros(4096)
 		
-		
-		index = 0
+		if self.compile["reverse"]:
+			index = self.length - 1
+		else:
+			index = 0
 		for zarrNumber in tqdm(self.useArray):
 			if not self.loadRunFile(zarrNumber):return
 			
@@ -77,7 +79,11 @@ class compileData:
 					fname = f"image_{c}"
 					self.wIMG.add_image(IMG,fname)
 					
-					index += 1
+					
+					if self.compile["reverse"]:
+						index -= 1
+					else:
+						index += 1
 		
 		self.histogram = self.histogram / index
 		self.zimg.finish_making_zarr_file()
@@ -109,7 +115,7 @@ class compileData:
 					pImg = self.IMG.get_image_with_shift(i-1,self.width+1,self.height+1,self.shifts[zarrNumber],crop = self.compile['crop']['total'])
 					self.similarity[zarrNumber].append(img.similarity(image,pImg))
 				else:
-					self.similarity[zarrNumber].append(0)
+					self.similarity[zarrNumber].append(50)
 	
 	def loadRunFile(self,zarrNumber):
 		zpath = self.inpath + 'MUSE_stitched_acq_'  + str(zarrNumber) + '.zarr'
@@ -167,8 +173,8 @@ class compileData:
 		self.means = self.data['means']
 		self.zpath = self.outpath + 'compiled.zarr'
 		
-		self.focus_threshhold = 15
-		self.similarity_threshhold_min = 15
+		self.focus_threshhold = 10
+		self.similarity_threshhold_min = 5
 		self.similarity_threshhold_max = 100
 		
 		self.useArray = []
